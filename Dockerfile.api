@@ -1,0 +1,47 @@
+# Dockerfile.api
+
+# Use an official Python runtime as a parent image
+FROM python:3.12-slim-buster 
+# Or python:3.11-slim-buster, etc., matching your development environment Python version
+
+# Set the working directory in the container
+WORKDIR /usr/src/app
+
+# Install system dependencies that might be needed (if any)
+# For Flask and boto3, usually not many extra system deps are needed with slim images.
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     && rm -rf /var/lib/apt/lists/*
+
+# Copy the requirements file into the container at /usr/src/app
+COPY requirements.txt ./
+
+# Install any needed packages specified in requirements.txt
+# Using --no-cache-dir can reduce image size
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the local package (your application code) into the container
+# Copy only necessary files for the API server
+COPY app.py .
+# If app.py imports constants or helper functions from other .py files that it needs at runtime (but not the full main_editor)
+# you might need to copy them too. For now, assuming app.py is fairly self-contained or imports what's in requirements.txt.
+# If main_editor.py contains DEFINITIONS app.py imports (like DEFAULT_REEL_THEME_PLACEHOLDER), copy it too.
+COPY main_editor.py . # Because app.py imports defaults from it
+# COPY tasks.py . # If app.py imports Celery task definitions for AsyncResult type hinting (often needed)
+COPY tasks.py . # app.py uses tasks.celery_app for AsyncResult
+
+# Make port 5000 available to the world outside this container
+EXPOSE 5000
+
+# Define environment variables (optional, can be set at runtime)
+# ENV FLASK_APP app.py
+# ENV FLASK_RUN_HOST 0.0.0.0
+
+# Install Gunicorn (production WSGI server)
+RUN pip install --no-cache-dir gunicorn
+
+# Run app.py when the container launches using Gunicorn
+# -w 4: Use 4 worker processes (adjust based on your instance's CPU cores)
+# -b 0.0.0.0:5000: Bind to all network interfaces on port 5000
+CMD ["gunicorn", "--workers", "2", "--bind", "0.0.0.0:5000", "app:app"]
+# For development, you might use: CMD ["flask", "run", "--host=0.0.0.0"]
+# But Gunicorn is better for how Celery will be used.

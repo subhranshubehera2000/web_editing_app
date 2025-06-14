@@ -1,0 +1,92 @@
+[
+  {
+    "original_video_path": "input_videos/video_20250603_121539_edit.mp4",
+    "shot_index_in_video": 0,
+    "start_time_sec": 0.0,
+    "end_time_sec": 33.799,
+    "duration_sec": 33.799,
+    "global_shot_id": 0,
+    "avg_brightness": 136.2823270640432,
+    "avg_color_rgb": [
+      150,
+      134,
+      111
+    ],
+    "avg_motion_score": 50.422151227678576
+  },
+  {
+    "original_video_path": "input_videos/video_20250603_121911_edit.mp4",
+    "shot_index_in_video": 0,
+    "start_time_sec": 0.0,
+    "end_time_sec": 34.599,
+    "duration_sec": 34.599,
+    "global_shot_id": 1,
+    "avg_brightness": 132.90622061700836,
+    "avg_color_rgb": [
+      119,
+      136,
+      153
+    ],
+    "avg_motion_score": 33.995036539945396
+  },
+  {
+    "original_video_path": "input_videos/video_20250603_121829_edit.mp4",
+    "shot_index_in_video": 0,
+    "start_time_sec": 0.0,
+    "end_time_sec": 40.032334995843726,
+    "duration_sec": 40.032334995843726,
+    "global_shot_id": 2,
+    "avg_brightness": 139.95465097736627,
+    "avg_color_rgb": [
+      145,
+      138,
+      137
+    ],
+    "avg_motion_score": 48.91702980324074
+  },
+  {
+    "original_video_path": "input_videos/video_20250603_121829_edit.mp4",
+    "shot_index_in_video": 1,
+    "start_time_sec": 40.032334995843726,
+    "end_time_sec": 40.099000000000004,
+    "duration_sec": 0.06666500415627752,
+    "global_shot_id": 3,
+    "avg_brightness": 123.99057508680556,
+    "avg_color_rgb": [
+      144,
+      119,
+      100
+    ],
+    "avg_motion_score": 33.9799397183642
+  },
+  {
+    "original_video_path": "input_videos/video_20250603_121756_edit.mp4",
+    "shot_index_in_video": 0,
+    "start_time_sec": 0.0,
+    "end_time_sec": 7.999,
+    "duration_sec": 7.999,
+    "global_shot_id": 4,
+    "avg_brightness": 131.4344664214065,
+    "avg_color_rgb": [
+      143,
+      130,
+      110
+    ],
+    "avg_motion_score": 38.949170153727444
+  },
+  {
+    "original_video_path": "input_videos/video_20250603_121648_edit.mp4",
+    "shot_index_in_video": 0,
+    "start_time_sec": 0.0,
+    "end_time_sec": 58.699,
+    "duration_sec": 58.699,
+    "global_shot_id": 5,
+    "avg_brightness": 143.35585065999777,
+    "avg_color_rgb": [
+      144,
+      147,
+      125
+    ],
+    "avg_motion_score": 33.2529606629867
+  }
+]

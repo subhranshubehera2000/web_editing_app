@@ -1,0 +1,67 @@
+{
+  "edit_plan": [
+    {
+      "global_shot_id": 2,
+      "segment_start_in_shot_sec": 0.0,
+      "segment_end_in_shot_sec": 1.2,
+      "color_grade_style": "VibrantPop",
+      "transition_to_next": "Cut",
+      "effects": [
+        "SlightZoomIn_15%"
+      ],
+      "reasoning": "Energetic opening, syncs with main beat."
+    },
+    {
+      "global_shot_id": 5,
+      "segment_start_in_shot_sec": 10.0,
+      "segment_end_in_shot_sec": 12.0,
+      "color_grade_style": "NaturalEnhance",
+      "transition_to_next": "Cut",
+      "effects": [
+        "Stabilize_Video_Level10"
+      ],
+      "reasoning": "Smooth scenic shot, stabilized for clarity."
+    },
+    {
+      "global_shot_id": 0,
+      "segment_start_in_shot_sec": 5.0,
+      "segment_end_in_shot_sec": 6.5,
+      "color_grade_style": "WarmVintage",
+      "transition_to_next": "Dissolve",
+      "effects": [],
+      "reasoning": "Transition to new scene, vintage vibe."
+    },
+    {
+      "global_shot_id": 4,
+      "segment_start_in_shot_sec": 2.0,
+      "segment_end_in_shot_sec": 4.0,
+      "color_grade_style": "CoolCinematic",
+      "transition_to_next": "Cut",
+      "effects": [
+        "SlowMotion_0.5x",
+        "SubtleCameraShake_Strength_3"
+      ],
+      "reasoning": "Dramatic slow-motion moment, subtle shake."
+    },
+    {
+      "global_shot_id": 1,
+      "segment_start_in_shot_sec": 15.0,
+      "segment_end_in_shot_sec": 17.0,
+      "color_grade_style": "MonochromeClassic",
+      "transition_to_next": "Fade",
+      "effects": [
+        "FastForward_2x"
+      ],
+      "reasoning": "Energetic time-lapse transition to new scene."
+    },
+    {
+      "global_shot_id": 2,
+      "segment_start_in_shot_sec": 25.0,
+      "segment_end_in_shot_sec": 28.0,
+      "color_grade_style": "VibrantPop",
+      "transition_to_next": "None",
+      "effects": [],
+      "reasoning": "Closing highlight shot, vibrant and upbeat."
+    }
+  ]
+}

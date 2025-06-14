@@ -1,0 +1,211 @@
+# reel_assembler.py
+import sys
+from moviepy.editor import (VideoFileClip, concatenate_videoclips, AudioFileClip)
+from moviepy.video.fx import all as vfx # For vfx.colorx, vfx.speedx etc.
+from moviepy.video.compositing import transitions as transfx
+# from moviepy.video.VideoClip import ImageClip # Not directly needed for this fix
+import numpy as np
+import os
+import re 
+import traceback
+import json # For test in main
+
+
+def parse_effect_with_value(effect_name_str, default_value_if_not_specified=None):
+    match = re.match(r"([A-Za-z]+)_([\d\.]+)(x|%)?", effect_name_str)
+    if match:
+        name = match.group(1)
+        value_str = match.group(2)
+        unit = match.group(3)
+        try:
+            value = float(value_str)
+            if unit == '%': return name, value / 100.0
+            return name, value
+        except ValueError:
+            print(f"Warning: Could not parse value for effect '{effect_name_str}'.")
+            return name, default_value_if_not_specified
+    return effect_name_str, default_value_if_not_specified
+
+
+def apply_color_grade(clip, style_name):
+    """Applies conceptual color grade. Replace with actual LUTs or image processing."""
+    print(f"  Applying color grade: '{style_name}' to clip (dur: {clip.duration:.2f}s)")
+    if style_name == "VibrantPop":
+        return clip.fx(vfx.colorx, 1.3) # Example: increase color saturation
+    elif style_name == "CoolCinematic":
+        return clip.fx(vfx.lum_contrast, contrast=0.1, lum=-3) # Slight contrast, cooler
+    elif style_name == "WarmVintage":
+        # Modify RGB channels using fl_image to apply a function to each frame
+        def warm_vintage_filter(image_frame):
+            # image_frame is a HxWx3 Numpy array (RGB)
+            # Make a writable copy
+            frame_copy = image_frame.copy()
+            # Increase Red, slightly decrease Blue
+            frame_copy[:,:,0] = np.clip(frame_copy[:,:,0] * 1.1, 0, 255) # Red
+            # frame_copy[:,:,1] = np.clip(frame_copy[:,:,1] * 1.0, 0, 255) # Green (optional slight adjustment)
+            frame_copy[:,:,2] = np.clip(frame_copy[:,:,2] * 0.9, 0, 255) # Blue
+            return frame_copy.astype(np.uint8)
+        
+        return clip.fl_image(warm_vintage_filter)
+    elif style_name == "MonochromeClassic":
+        return clip.fx(vfx.blackwhite)
+    elif style_name == "NaturalEnhance":
+         return clip.fx(vfx.colorx, 1.1)
+    print(f"    Color grade style '{style_name}' not recognized or placeholder. No change.")
+    return clip
+
+# ... (Rest of reel_assembler.py, including apply_effects, assemble_reel, and __main__
+#      should be IDENTICAL to the last FULL version I provided in my "give full modified bedrock_director.py in a file" response,
+#      specifically the version from the response starting with "You are absolutely, 100% correct, and I sincerely apologize!")
+#      I will only include the apply_effects, assemble_reel, and __main__ if there was a relevant change from *that specific previous full version*.
+#      Assuming they are the same, the change above is the only one needed in this file for this specific error.
+
+
+def apply_effects(clip, effect_names_list):
+    """Applies conceptual effects. Replace with actual MoviePy or custom effects."""
+    if not effect_names_list: return clip
+    print(f"  Applying effects: {effect_names_list} to clip (dur: {clip.duration:.2f}s)")
+    modified_clip = clip
+    for effect_full_name in effect_names_list:
+        effect_name, effect_value = parse_effect_with_value(effect_full_name)
+        original_duration = modified_clip.duration
+        if effect_name == "SlowMotion" and effect_value is not None and 0 < effect_value < 1: # Ensure valid factor
+            modified_clip = modified_clip.fx(vfx.speedx, factor=effect_value)
+            print(f"    Applied {effect_name}_{effect_value}x. New duration: {modified_clip.duration:.2f}s (was {original_duration:.2f}s)")
+        elif effect_name == "FastForward" and effect_value is not None and effect_value > 1: # Ensure valid factor
+            modified_clip = modified_clip.fx(vfx.speedx, factor=effect_value)
+            print(f"    Applied {effect_name}_{effect_value}x. New duration: {modified_clip.duration:.2f}s (was {original_duration:.2f}s)")
+        elif effect_name == "SlightZoomIn" and effect_value is not None and 0 < effect_value <= 1: # Value is fraction e.g. 0.1 for 10%
+            zoom_factor_end = 1 + effect_value
+            if original_duration > 0: # Avoid division by zero for zero-duration clips
+                 modified_clip = modified_clip.resize(lambda t: 1 + ( (zoom_factor_end - 1) * (t / original_duration) ) )
+                 print(f"    Applied {effect_name}_{effect_value*100}%. Duration remains: {modified_clip.duration:.2f}s")
+            else: print(f"    Skipping {effect_name} on zero-duration clip.")
+        else: print(f"    Effect '{effect_full_name}' not recognized, value invalid, or no change. Factor: {effect_value}")
+    return modified_clip
+
+def assemble_reel(edit_plan_data, all_video_shots_metadata_dict, audio_data, output_file_path):
+    if not edit_plan_data or "edit_plan" not in edit_plan_data or not edit_plan_data["edit_plan"]:
+        print("Error in assemble_reel: Invalid, empty, or malformed edit plan received.")
+        return False
+
+    print(f"\nAssembling reel ({len(edit_plan_data['edit_plan'])} segments planned), to: {output_file_path}")
+    unprocessed_segments_plan = edit_plan_data["edit_plan"]
+    processed_moviepy_clips_info = []
+
+    output_target_width = 1080; output_target_height = 1920
+    output_aspect_ratio = output_target_width / output_target_height
+
+    for i, segment_plan in enumerate(unprocessed_segments_plan):
+        segment_label = f"Segment {i+1}/{len(unprocessed_segments_plan)}"
+        print(f"Processing {segment_label} plan item...")
+        if segment_plan.get("reasoning"): print(f"    AI Reasoning: {segment_plan.get('reasoning')}")
+
+        gid = segment_plan.get("global_shot_id")
+        if gid is None: print(f"  Warn {segment_label}: 'global_shot_id' missing. Skipping."); continue
+        shot_meta = all_video_shots_metadata_dict.get(gid)
+        if not shot_meta: print(f"  Warn {segment_label}: Shot ID {gid} not in metadata. Skipping."); continue
+
+        orig_vid_file = shot_meta["original_video_path"]
+        seg_start_in_shot = segment_plan.get("segment_start_in_shot_sec", 0.0)
+        seg_end_in_shot = segment_plan.get("segment_end_in_shot_sec")
+
+        if seg_end_in_shot is None or not isinstance(seg_end_in_shot, (int,float)) or seg_end_in_shot <= seg_start_in_shot:
+            print(f"  Warn {segment_label} (Shot {gid}): Invalid/missing times. Skipping."); continue
+        
+        shot_start_orig = shot_meta["start_time_sec"]; shot_dur_orig = shot_meta["duration_sec"]
+        if seg_start_in_shot < 0: seg_start_in_shot = 0.0
+        if seg_end_in_shot > shot_dur_orig + 0.05: seg_end_in_shot = shot_dur_orig # Clamp
+        if seg_end_in_shot <= seg_start_in_shot + 0.01: print(f"  Warn {segment_label} (Shot {gid}): Duration too short after clamp. Skipping."); continue
+            
+        abs_start = shot_start_orig + seg_start_in_shot; abs_end = shot_start_orig + seg_end_in_shot
+        
+        current_clip_obj = None; final_clip_for_seg_obj = None
+        try:
+            print(f"    Loading segment from '{os.path.basename(orig_vid_file)}': {abs_start:.2f}s to {abs_end:.2f}s")
+            current_clip_obj = VideoFileClip(orig_vid_file, audio=False).subclip(abs_start, abs_end)
+            if current_clip_obj.duration <= 0.01: print(f"  Warn {segment_label}: Subclip zero/neg duration. Skipping."); current_clip_obj.close(); continue
+            
+            print(f"    Raw loaded: {current_clip_obj.size[0]}x{current_clip_obj.size[1]}, dur: {current_clip_obj.duration:.2f}s")
+            final_clip_for_seg_obj = current_clip_obj
+            curr_w, curr_h = final_clip_for_seg_obj.size; curr_aspect = curr_w / curr_h
+
+            if abs(curr_aspect - output_aspect_ratio) > 0.01:
+                if curr_aspect > output_aspect_ratio: new_w = int(output_aspect_ratio*curr_h); final_clip_for_seg_obj = final_clip_for_seg_obj.fx(vfx.crop, x_center=curr_w/2, width=new_w)
+                else: new_h = int(curr_w/output_aspect_ratio); final_clip_for_seg_obj = final_clip_for_seg_obj.fx(vfx.crop, y_center=curr_h/2, height=new_h)
+            
+            if final_clip_for_seg_obj.size[0]!=output_target_width or final_clip_for_seg_obj.size[1]!=output_target_height:
+                final_clip_for_seg_obj = final_clip_for_seg_obj.resize(newsize=(output_target_width, output_target_height))
+            
+            final_clip_for_seg_obj = apply_color_grade(final_clip_for_seg_obj, segment_plan.get("color_grade_style", "NaturalEnhance"))
+            final_clip_for_seg_obj = apply_effects(final_clip_for_seg_obj, segment_plan.get("effects", []))
+            
+            if final_clip_for_seg_obj.duration <= 0.01: print(f"  Warn {segment_label}: Duration too short post-effects. Skipping."); final_clip_for_seg_obj.close(); continue
+
+            print(f"    {segment_label} processed. Final clip duration: {final_clip_for_seg_obj.duration:.2f}s")
+            processed_moviepy_clips_info.append({"clip": final_clip_for_seg_obj, "transition_to_next": segment_plan.get("transition_to_next", "Cut").lower()})
+            if final_clip_for_seg_obj != current_clip_obj: current_clip_obj.close() 
+        except Exception as e_seg:
+            print(f"  ERROR processing {segment_label} (Shot {gid}): {e_seg}"); traceback.print_exc()
+            if current_clip_obj: current_clip_obj.close()
+            if final_clip_for_seg_obj and final_clip_for_seg_obj != current_clip_obj: final_clip_for_seg_obj.close()
+
+    if not processed_moviepy_clips_info: print("No segments processed. Cannot assemble."); return False
+
+    final_clips_concat = []; FADE_DUR = 0.3
+    for i, seg_info in enumerate(processed_moviepy_clips_info):
+        clip_to_add = seg_info["clip"]
+        if i > 0:
+            prev_trans = processed_moviepy_clips_info[i-1]["transition_to_next"]
+            if prev_trans == "fade": clip_to_add = clip_to_add.fx(transfx.fadein, duration=FADE_DUR); print(f"    Applied Fade IN to seg {i+1}")
+            elif prev_trans == "dissolve": clip_to_add = clip_to_add.fx(transfx.crossfadein, duration=FADE_DUR); print(f"    Applied Dissolve (crossfadein) to seg {i+1}")
+        final_clips_concat.append(clip_to_add)
+    
+    if not final_clips_concat: print("No clips after transition handling."); return False
+
+    final_vid_comp = None; final_aud_track = None; final_output_reel = None
+    try:
+        print(f"Concatenating {len(final_clips_concat)} clips..."); final_vid_comp = concatenate_videoclips(final_clips_concat, method="chain")
+        final_aud_track = AudioFileClip(audio_data["path"]); vid_dur = final_vid_comp.duration
+        if final_aud_track.duration > vid_dur: final_aud_track = final_aud_track.subclip(0, vid_dur)
+        elif final_aud_track.duration < vid_dur: print(f"Warn: Audio ({final_aud_track.duration:.2f}s) shorter than video ({vid_dur:.2f}s).")
+        final_output_reel = final_vid_comp.set_audio(final_aud_track)
+        print(f"Writing final reel (duration: {final_output_reel.duration:.2f}s)...")
+        final_output_reel.write_videofile(output_file_path, codec="libx264", audio_codec="aac", 
+                                     threads=max(1, (os.cpu_count() or 2)//2), fps=30, preset="medium", logger='bar')
+        print("Reel assembly complete!"); return True
+    except Exception as e_write: print(f"ERROR during final concat/write: {e_write}"); traceback.print_exc(); return False
+    finally:
+        for clip_obj_f in final_clips_concat: 
+             if clip_obj_f: clip_obj_f.close()
+        if final_vid_comp and not any(final_vid_comp is c for c in final_clips_concat): final_vid_comp.close()
+        if final_aud_track: final_aud_track.close()
+
+if __name__ == '__main__':
+    print("\n--- Testing reel_assembler.py (standalone) ---")
+    dummy_plan_path = "output/dummy_edit_plan_from_bedrock_test.json"
+    dummy_video_path = "input_videos/dummy_test_video.mp4"
+    dummy_audio_path = "input_audio/dummy_test_audio.wav"
+
+    if not os.path.exists(dummy_video_path): print(f"ERROR: Missing {dummy_video_path}.")
+    if not os.path.exists(dummy_audio_path): print(f"ERROR: Missing {dummy_audio_path}.")
+    if not os.path.exists(dummy_plan_path): print(f"ERROR: Missing {dummy_plan_path}.")
+
+    if os.path.exists(dummy_plan_path) and os.path.exists(dummy_video_path) and os.path.exists(dummy_audio_path):
+        with open(dummy_plan_path, "r") as f: test_plan = json.load(f)
+        test_shots_meta_dict = {}
+        if test_plan and "edit_plan" in test_plan:
+            example_shot_time = 0
+            for seg_p in test_plan["edit_plan"]:
+                gid_p = seg_p.get("global_shot_id")
+                if gid_p is not None and gid_p not in test_shots_meta_dict:
+                    test_shots_meta_dict[gid_p] = {
+                        "global_shot_id": gid_p, "original_video_path": dummy_video_path,
+                        "start_time_sec": example_shot_time, "duration_sec": 2.5, 
+                        "end_time_sec": example_shot_time + 2.5,
+                        "avg_brightness": 120, "avg_color_rgb": [120,120,120], "avg_motion_score": 10 }
+                    example_shot_time += 2.5 
+                    if example_shot_time > 10: example_shot_time = 0 
+        test_audio_d = {"path": dummy_audio_path, "duration": 30.0}
+        assemble_reel(test_plan, test_shots_meta_dict, test_audio_d, "output/test_standalone_reel_NEW.mp4")
+    else: print("Skipping standalone reel assembler test due to missing files.")
