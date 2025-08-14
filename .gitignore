@@ -1,3 +1,5 @@
 *.bkp
 venv/
 input_videos/
+venv/
+*.mp4
