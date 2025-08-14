@@ -22,6 +22,7 @@ const AudioSelector: React.FC<AudioSelectorProps> = ({ audioS3Key, onSegmentSele
   
   const waveformRef = useRef<HTMLDivElement>(null);
   const regionsPluginRef = useRef<any>(null);
+  const isManualModeRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (isVisible && audioS3Key && waveformRef.current) {
@@ -65,6 +66,41 @@ const AudioSelector: React.FC<AudioSelectorProps> = ({ audioS3Key, onSegmentSele
         setTimeDisplay(`${formatTime(currentTime)} / ${formatTime(totalTime)}`);
       });
 
+      regionsPluginRef.current.on('region-created', (region: any) => {
+        if (isManualMode) {
+          setCurrentRegion(region);
+          onSegmentSelected(region.start, region.end);
+        }
+      });
+
+      regionsPluginRef.current.on('region-updated', (region: any) => {
+        if (isManualMode) {
+          setCurrentRegion(region);
+          onSegmentSelected(region.start, region.end);
+        }
+      });
+
+      ws.on('click', (relativeX: number) => {
+        setTimeout(() => {
+          if (isManualModeRef.current && regionsPluginRef.current) {
+            const clickTime = relativeX * ws.getDuration();
+            const regionDuration = Math.min(duration, ws.getDuration() - clickTime);
+            
+            regionsPluginRef.current.clearRegions();
+            const newRegion = regionsPluginRef.current.addRegion({
+              start: clickTime,
+              end: clickTime + regionDuration,
+              color: 'rgba(59, 130, 246, 0.25)',
+              drag: true,
+              resize: true
+            });
+            
+            setCurrentRegion(newRegion);
+            onSegmentSelected(clickTime, clickTime + regionDuration);
+          }
+        }, 10);
+      });
+
     } catch (error) {
       console.error('Error setting up waveform:', error);
     }
@@ -106,8 +142,8 @@ const AudioSelector: React.FC<AudioSelectorProps> = ({ audioS3Key, onSegmentSele
       start: suggestion.start_time,
       end: suggestion.end_time,
       color: 'rgba(59, 130, 246, 0.25)',
-      drag: false,
-      resize: false
+      drag: isManualMode,
+      resize: isManualMode
     });
     
     setCurrentRegion(region);
@@ -128,9 +164,18 @@ const AudioSelector: React.FC<AudioSelectorProps> = ({ audioS3Key, onSegmentSele
   };
 
   const toggleManualMode = () => {
-    setIsManualMode(!isManualMode);
-    if (!isManualMode && regionsPluginRef.current) {
+    const newManualMode = !isManualMode;
+    setIsManualMode(newManualMode);
+    isManualModeRef.current = newManualMode;
+    
+    if (regionsPluginRef.current) {
       regionsPluginRef.current.clearRegions();
+      
+      if (!newManualMode && aiSuggestions.length > 0) {
+        displaySuggestion(currentSuggestionIndex);
+      } else if (newManualMode) {
+        setCurrentRegion(null);
+      }
     }
   };
 

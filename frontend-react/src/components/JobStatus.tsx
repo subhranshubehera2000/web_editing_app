@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../config/api';
 import { JobStatus as JobStatusType } from '../types';
 
@@ -10,14 +10,18 @@ interface JobStatusProps {
 const JobStatus: React.FC<JobStatusProps> = ({ jobId, onJobComplete }) => {
   const [status, setStatus] = useState<JobStatusType | null>(null);
   const [isPolling, setIsPolling] = useState<boolean>(false);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (jobId && !isPolling) {
       setIsPolling(true);
-      const interval = setInterval(() => checkJobStatus(jobId), 3000);
+      intervalRef.current = setInterval(() => checkJobStatus(jobId), 3000);
       
       return () => {
-        clearInterval(interval);
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
         setIsPolling(false);
       };
     }
@@ -33,11 +37,19 @@ const JobStatus: React.FC<JobStatusProps> = ({ jobId, onJobComplete }) => {
       
       if (data.status === 'SUCCESS' || data.status === 'FAILURE') {
         setIsPolling(false);
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
         onJobComplete(data.download_url);
       }
     } catch (error) {
       console.error('Error fetching job status:', error);
       setIsPolling(false);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
     }
   };
 

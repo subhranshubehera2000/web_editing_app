@@ -79,6 +79,7 @@ function App() {
     setIsCreatingReel(false);
     if (downloadUrl) {
       console.log('Job completed successfully with download URL:', downloadUrl);
+      setCurrentStep(6); // Move to completion step
     }
   };
 
@@ -89,7 +90,8 @@ function App() {
     { id: 2, name: 'Select Segment', description: 'Choose the best part' },
     { id: 3, name: 'Upload Videos', description: 'Add your video clips' },
     { id: 4, name: 'Create Reel', description: 'Generate your masterpiece' },
-    { id: 5, name: 'Processing', description: 'AI is working its magic' }
+    { id: 5, name: 'Processing', description: 'AI is working its magic' },
+    { id: 6, name: 'Complete', description: 'Your reel is ready!' }
   ];
 
   return (
@@ -340,14 +342,31 @@ function App() {
             {currentJobId && (
               <div className={`transform transition-all duration-500 ${currentStep >= 5 ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-50'}`}>
                 <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl border border-white/20 overflow-hidden">
-                  <div className="bg-gradient-to-r from-purple-600 to-blue-600 px-6 py-4">
+                  <div className={`bg-gradient-to-r px-6 py-4 ${
+                    currentStep >= 6 
+                      ? 'from-green-600 to-emerald-600' 
+                      : 'from-purple-600 to-blue-600'
+                  }`}>
                     <div className="flex items-center space-x-3">
                       <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        {currentStep >= 6 ? (
+                          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        )}
                       </div>
-                      <h3 className="text-xl font-bold text-white">AI Processing</h3>
+                      <h3 className="text-xl font-bold text-white">
+                        {currentStep >= 6 ? 'Reel Complete!' : 'AI Processing'}
+                      </h3>
                     </div>
-                    <p className="text-purple-100 mt-2">Your reel is being crafted with AI precision</p>
+                    <p className="text-purple-100 mt-2">
+                      {currentStep >= 6 
+                        ? 'Your professional reel has been generated successfully' 
+                        : 'Your reel is being crafted with AI precision'
+                      }
+                    </p>
                   </div>
                   <div className="p-6">
                     <JobStatus 
