@@ -42,6 +42,59 @@ def parse_effect_with_value(effect_name_str, default_value_if_not_specified=None
         except ValueError: print(f"Warn: Val parse fail simple for '{effect_name_str}'."); return name_part, default_value_if_not_specified
     return effect_name_str, default_value_if_not_specified
 
+def parse_dictionary_effect(effect_dict):
+    """
+    Parse dictionary-format effects from AI.
+    Expected format: {'name': 'effect_name', 'settings': {...}}
+    Returns: (effect_name, effect_value) tuple compatible with existing effect handlers
+    """
+    if not isinstance(effect_dict, dict) or 'name' not in effect_dict:
+        print(f"Invalid dictionary effect format: {effect_dict}")
+        return str(effect_dict), None
+    
+    effect_name = effect_dict['name']
+    settings = effect_dict.get('settings', {})
+    
+    if effect_name == 'color_grade':
+        look = settings.get('look', '')
+        color_mapping = {
+            'warm_tropical': 'WarmVintage',
+            'warm': 'WarmVintage', 
+            'tropical': 'WarmVintage',
+            'vibrant': 'VibrantPop',
+            'pop': 'VibrantPop',
+            'cinematic': 'CoolCinematic',
+            'cool': 'CoolCinematic',
+            'monochrome': 'MonochromeClassic',
+            'classic': 'MonochromeClassic',
+            'natural': 'NaturalEnhance',
+            'enhance': 'NaturalEnhance'
+        }
+        
+        mapped_style = None
+        look_lower = look.lower()
+        for key, style in color_mapping.items():
+            if key in look_lower:
+                mapped_style = style
+                break
+        
+        if mapped_style:
+            print(f"    Mapped color_grade look '{look}' to style '{mapped_style}'")
+            return 'ColorGrade', mapped_style
+        else:
+            print(f"    Unknown color_grade look '{look}', using NaturalEnhance")
+            return 'ColorGrade', 'NaturalEnhance'
+    
+    elif effect_name in ['slow_motion', 'fast_forward']:
+        speed_factor = settings.get('factor', 1.0)
+        if effect_name == 'slow_motion':
+            return 'SlowMotion', speed_factor
+        else:
+            return 'FastForward', speed_factor
+    
+    print(f"    Unknown dictionary effect '{effect_name}', treating as unrecognized")
+    return effect_name, settings
+
 def apply_ken_burns_zoom(clip, zoom_start_scale=1.0, zoom_end_scale=1.1):
     if not hasattr(clip, 'duration') or clip.duration is None or clip.duration <= 0: return clip
     if not hasattr(clip, 'size') or not isinstance(clip.size, (list, tuple)) or len(clip.size) != 2: return clip
@@ -95,15 +148,29 @@ def apply_effects(clip, effect_names_list):
 
     for effect_full_name_from_ai in effect_names_list:
         clip_before_this_effect = current_processing_clip
-        parsed_effect_name, parsed_value = parse_effect_with_value(effect_full_name_from_ai)
+        
+        if isinstance(effect_full_name_from_ai, dict):
+            parsed_effect_name, parsed_value = parse_dictionary_effect(effect_full_name_from_ai)
+        elif isinstance(effect_full_name_from_ai, str):
+            parsed_effect_name, parsed_value = parse_effect_with_value(effect_full_name_from_ai)
+        else:
+            print(f"    Unknown effect format: {effect_full_name_from_ai}. Skipping.")
+            processed_by_this_effect_iteration = clip_before_this_effect
+            continue
+            
         original_duration_for_effect = clip_before_this_effect.duration if clip_before_this_effect.duration is not None else 0
 
         processed_by_this_effect_iteration = None
 
         if parsed_effect_name == "SlowMotion" and parsed_value is not None and 0 < parsed_value < 1:
             processed_by_this_effect_iteration = clip_before_this_effect.fx(vfx.speedx, factor=parsed_value)
+            print(f"    DEBUG: SlowMotion effect - Original: {original_duration_for_effect:.6f}s, New: {processed_by_this_effect_iteration.duration:.6f}s")
         elif parsed_effect_name == "FastForward" and parsed_value is not None and parsed_value > 1:
             processed_by_this_effect_iteration = clip_before_this_effect.fx(vfx.speedx, factor=parsed_value)
+            print(f"    DEBUG: FastForward effect - Original: {original_duration_for_effect:.6f}s, New: {processed_by_this_effect_iteration.duration:.6f}s")
+        elif parsed_effect_name == "ColorGrade" and parsed_value is not None:
+            processed_by_this_effect_iteration = apply_color_grade(clip_before_this_effect, parsed_value)
+            print(f"    DEBUG: ColorGrade effect applied - Style: {parsed_value}")
         elif parsed_effect_name == "SlightZoomIn" and parsed_value is not None and 0 < parsed_value <= 0.5:
             zoom_end_scale = 1.0 + parsed_value
             processed_by_this_effect_iteration = apply_ken_burns_zoom(clip_before_this_effect, zoom_start_scale=1.0, zoom_end_scale=zoom_end_scale)
@@ -123,7 +190,13 @@ def apply_effects(clip, effect_names_list):
                 cmd_t=["ffmpeg","-y","-i",tmp_in,"-vf",f"vidstabtransform=input={tmp_trf}:zoom=0:smoothing={smoothing_level},unsharp=5:5:0.7:3:3:0.3","-c:v","libx264","-preset","medium","-crf","20","-r",str(fps_w),tmp_out]
                 subprocess.run(cmd_t,check=True,capture_output=True,text=True,timeout=90)
                 if os.path.exists(tmp_out) and os.path.getsize(tmp_out)>100:
-                    processed_by_this_effect_iteration=VideoFileClip(tmp_out,audio=False,fps_source="fps").set_duration(original_duration_for_effect)
+                    stabilized_clip = VideoFileClip(tmp_out,audio=False,fps_source="fps")
+                    print(f"    DEBUG: Stabilized clip duration: {stabilized_clip.duration:.6f}s vs original: {original_duration_for_effect:.6f}s")
+                    if abs(stabilized_clip.duration - original_duration_for_effect) > 0.1:
+                        print(f"    DEBUG: Forcing duration correction for stabilization")
+                        processed_by_this_effect_iteration = stabilized_clip.set_duration(original_duration_for_effect)
+                    else:
+                        processed_by_this_effect_iteration = stabilized_clip
                 else: processed_by_this_effect_iteration=clip_before_this_effect
             except Exception as e_s:print(f"    ERR stab {effect_full_name_from_ai}:{e_s}");processed_by_this_effect_iteration=clip_before_this_effect
         else:
@@ -164,7 +237,17 @@ def assemble_reel(edit_plan_data, all_video_shots_metadata_dict, audio_data, out
             s_end=seg_plan.get("segment_end_in_shot_sec")
             shot_so=s_meta["start_time_sec"];
             abs_s=shot_so+s_start;abs_e=shot_so+s_end
+            
+            expected_duration = s_end - s_start
+            print(f"  DEBUG: Expected segment duration: {expected_duration:.6f}s (from {s_start:.6f}s to {s_end:.6f}s)")
+            print(f"  DEBUG: Shot offset: {shot_so:.6f}s, Absolute times: {abs_s:.6f}s to {abs_e:.6f}s")
+            
+            if expected_duration < 0.1:
+                print(f"  WARNING: Very short segment ({expected_duration:.6f}s) - potential precision issues")
+            
             src_clip_seg=VideoFileClip(orig_vf,audio=False).subclip(abs_s,abs_e)
+            print(f"  DEBUG: Actual extracted clip duration: {src_clip_seg.duration:.6f}s")
+            
             proc_clip_seg = src_clip_seg.copy() # Make a copy to manipulate
             # Aspect ratio correction, resizing, color grading, effects... all unchanged
             cw,ch=proc_clip_seg.size; ca=cw/ch
@@ -178,6 +261,15 @@ def assemble_reel(edit_plan_data, all_video_shots_metadata_dict, audio_data, out
 
             proc_clip_seg=apply_color_grade(proc_clip_seg,seg_plan.get("color_grade_style","NaturalEnhance"))
             proc_clip_seg=apply_effects(proc_clip_seg,seg_plan.get("effects",[]))
+            
+            print(f"  DEBUG: Final processed clip duration: {proc_clip_seg.duration:.6f}s")
+            
+            if proc_clip_seg.duration is None or proc_clip_seg.duration <= 0:
+                print(f"  ERROR: Invalid clip duration ({proc_clip_seg.duration}), skipping segment")
+                proc_clip_seg.close()
+                continue
+            elif proc_clip_seg.duration < 0.05:  # Less than 50ms
+                print(f"  WARNING: Very short clip ({proc_clip_seg.duration:.6f}s) may cause concatenation issues")
             
             processed_clips_info.append({"clip":proc_clip_seg,"transition_to_next":seg_plan.get("transition_to_next","Cut").lower()})
             src_clip_seg.close() # Close original subclip
@@ -193,13 +285,27 @@ def assemble_reel(edit_plan_data, all_video_shots_metadata_dict, audio_data, out
     if not processed_clips_info: print("No segments successfully processed. Cannot assemble."); return False, None
     # --- This block for applying transitions remains unchanged ---
     final_concat_clips=[];fd=0.3
+    total_expected_duration = 0.0
+    
+    print(f"\nDEBUG: Applying transitions and building final clip list...")
     for i, s_info in enumerate(processed_clips_info):
         c_add=s_info["clip"]
+        original_duration = c_add.duration
+        
         if i>0:
             prev_t=processed_clips_info[i-1]["transition_to_next"]
-            if prev_t=="fade":c_add=c_add.fx(transfx.fadein,duration=fd)
-            elif prev_t=="dissolve":c_add=c_add.fx(transfx.crossfadein,duration=fd)
+            if prev_t=="fade":
+                c_add=c_add.fx(transfx.fadein,duration=fd)
+                print(f"  DEBUG: Applied fade transition (duration={fd}s) to clip {i+1}")
+            elif prev_t=="dissolve":
+                c_add=c_add.fx(transfx.crossfadein,duration=fd)
+                print(f"  DEBUG: Applied dissolve transition (duration={fd}s) to clip {i+1}")
+        
+        print(f"  DEBUG: Clip {i+1} duration: {original_duration:.6f}s -> {c_add.duration:.6f}s")
+        total_expected_duration += c_add.duration
         final_concat_clips.append(c_add)
+    
+    print(f"DEBUG: Total expected duration from individual clips: {total_expected_duration:.6f}s")
     if not final_concat_clips: print("No clips after trans handling."); return False, None
 
 
@@ -208,6 +314,22 @@ def assemble_reel(edit_plan_data, all_video_shots_metadata_dict, audio_data, out
     try:
         print(f"Concatenating {len(final_concat_clips)} final video clips...");
         final_vc=concatenate_videoclips(final_concat_clips,method="chain")
+        print(f"DEBUG: Concatenated video duration: {final_vc.duration:.6f}s")
+        print(f"DEBUG: Duration difference: {final_vc.duration - total_expected_duration:.6f}s")
+        
+        duration_loss = total_expected_duration - final_vc.duration
+        if duration_loss > 0.1:  # More than 100ms loss
+            print(f"WARNING: Significant duration loss detected ({duration_loss:.6f}s)")
+            print(f"DEBUG: Attempting duration correction...")
+            try:
+                corrected_vc = final_vc.set_duration(total_expected_duration)
+                print(f"DEBUG: Duration correction applied - New duration: {corrected_vc.duration:.6f}s")
+                final_vc.close()
+                final_vc = corrected_vc
+            except Exception as e:
+                print(f"DEBUG: Duration correction failed: {e}")
+        elif duration_loss < -0.1:  # Video is longer than expected
+            print(f"WARNING: Video is longer than expected by {-duration_loss:.6f}s")
         if final_vc.duration is None or final_vc.duration<=0:print(f"ERR: Vid composition has invalid duration.");return False,None
         
         # Load the full audio file
@@ -219,19 +341,25 @@ def assemble_reel(edit_plan_data, all_video_shots_metadata_dict, audio_data, out
         if "segment_start_sec" in audio_data and "segment_end_sec" in audio_data:
             start_time = audio_data['segment_start_sec']
             end_time = audio_data['segment_end_sec']
+            expected_audio_duration = end_time - start_time
             print(f"Trimming main audio to selected segment: {start_time:.2f}s - {end_time:.2f}s")
+            print(f"DEBUG: Expected audio duration: {expected_audio_duration:.6f}s")
             # This reassigns final_at to a new AudioFileClip object representing only the desired portion.
             final_at = final_at.subclip(start_time, end_time)
+            print(f"DEBUG: Actual audio duration after trim: {final_at.duration:.6f}s")
         # <<< --- END OF MODIFICATION --- >>>
         
         # Now, proceed with the (potentially trimmed) audio clip.
         # Ensure audio does not exceed the final video's duration.
         vd=final_vc.duration
+        print(f"DEBUG: Final comparison - Video: {vd:.6f}s, Audio: {final_at.duration:.6f}s")
         if final_at.duration > vd:
             print(f"Audio clip ({final_at.duration:.2f}s) is longer than video ({vd:.2f}s). Trimming audio.")
+            print(f"DEBUG: Duration difference that will be trimmed: {final_at.duration - vd:.6f}s")
             final_at=final_at.subclip(0, vd)
         elif final_at.duration < vd:
             print(f"Warning: Audio clip ({final_at.duration:.2f}s) is shorter than video ({vd:.2f}s). Video will have silence at the end.")
+            print(f"DEBUG: Duration shortfall: {vd - final_at.duration:.6f}s")
 
         final_or_obj=final_vc.set_audio(final_at)
         print(f"Writing final reel (effective duration: {final_or_obj.duration:.2f}s)...")
