@@ -78,40 +78,61 @@ const AudioUpload: React.FC<AudioUploadProps> = ({ onAudioUploaded, onUploadStat
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <div className="border-b pb-3 mb-4">
-        <h3 className="text-lg font-semibold text-gray-800">Step 1: Upload Your Media</h3>
+    <div className="space-y-6">
+      <div className="relative">
+        <input
+          ref={fileInputRef}
+          className="hidden"
+          type="file"
+          id="audioFile"
+          accept=".mp3,.wav,.aac"
+          onChange={handleAudioUpload}
+          disabled={isUploading}
+        />
+        <label
+          htmlFor="audioFile"
+          className={`relative flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer transition-all duration-300 ${
+            isUploading 
+              ? 'border-blue-300 bg-blue-50/50' 
+              : 'border-gray-300 bg-white/50 hover:bg-blue-50/50 hover:border-blue-400'
+          }`}
+        >
+          <div className="flex flex-col items-center justify-center pt-5 pb-6">
+            <svg className="w-10 h-10 mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+            </svg>
+            <p className="mb-2 text-sm text-gray-500">
+              <span className="font-semibold">Click to upload</span> your audio track
+            </p>
+            <p className="text-xs text-gray-500">MP3, WAV, or AAC (MAX. 50MB)</p>
+          </div>
+        </label>
       </div>
-      <div className="space-y-4">
-        <div>
-          <label htmlFor="audioFile" className="block text-sm font-medium text-gray-700 mb-2">
-            Audio Track (MP3, WAV)
-          </label>
-          <input
-            ref={fileInputRef}
-            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-            type="file"
-            id="audioFile"
-            accept=".mp3,.wav,.aac"
-            onChange={handleAudioUpload}
-            disabled={isUploading}
-          />
-          {isUploading && (
-            <div className="mt-3 p-3 bg-gray-50 rounded-md">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">{fileName}</span>
-                <span className="text-sm text-gray-500">{uploadStatus}</span>
+
+      {isUploading && (
+        <div className="bg-white/70 backdrop-blur-sm rounded-xl p-4 border border-white/20">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                <svg className="w-5 h-5 text-blue-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                </svg>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
-                  style={{ width: `${uploadProgress}%` }}
-                ></div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">{fileName}</p>
+                <p className="text-xs text-gray-500">{uploadStatus}</p>
               </div>
             </div>
-          )}
+            <div className="text-sm font-medium text-blue-600">{uploadProgress}%</div>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div 
+              className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300" 
+              style={{ width: `${uploadProgress}%` }}
+            ></div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

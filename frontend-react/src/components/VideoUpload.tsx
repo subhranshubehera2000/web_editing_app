@@ -101,13 +101,10 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onVideosUploaded, onUploadSta
   };
 
   return (
-    <div className="space-y-4">
-      <div>
-        <label htmlFor="videoFiles" className="block text-sm font-medium text-gray-700 mb-2">
-          Video Files (MP4, MOV)
-        </label>
+    <div className="space-y-6">
+      <div className="relative">
         <input
-          className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+          className="hidden"
           type="file"
           id="videoFiles"
           accept=".mp4,.mov,.avi"
@@ -115,19 +112,59 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onVideosUploaded, onUploadSta
           onChange={handleVideoUploads}
           disabled={isUploading}
         />
+        <label
+          htmlFor="videoFiles"
+          className={`relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-xl cursor-pointer transition-all duration-300 ${
+            isUploading 
+              ? 'border-pink-300 bg-pink-50/50' 
+              : 'border-gray-300 bg-white/50 hover:bg-pink-50/50 hover:border-pink-400'
+          }`}
+        >
+          <div className="flex flex-col items-center justify-center pt-5 pb-6">
+            <svg className="w-12 h-12 mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <p className="mb-2 text-sm text-gray-500">
+              <span className="font-semibold">Click to upload</span> your video clips
+            </p>
+            <p className="text-xs text-gray-500">MP4, MOV, or AVI • Multiple files supported</p>
+          </div>
+        </label>
       </div>
       
       {uploadItems.length > 0 && (
         <div className="space-y-3">
+          <h4 className="text-sm font-semibold text-gray-700 flex items-center">
+            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+            </svg>
+            Upload Progress
+          </h4>
           {uploadItems.map((item, index) => (
-            <div key={index} className="p-3 bg-gray-50 rounded-md">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">{item.name}</span>
-                <span className="text-sm text-gray-500">{item.status}</span>
+            <div key={index} className="bg-white/70 backdrop-blur-sm rounded-xl p-4 border border-white/20">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-pink-100 rounded-full flex items-center justify-center">
+                    {item.status === 'Complete!' ? (
+                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5 text-pink-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{item.name}</p>
+                    <p className="text-xs text-gray-500">{item.status}</p>
+                  </div>
+                </div>
+                <div className="text-sm font-medium text-pink-600">{item.progress}%</div>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div 
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+                  className="bg-gradient-to-r from-pink-500 to-red-500 h-2 rounded-full transition-all duration-300" 
                   style={{ width: `${item.progress}%` }}
                 ></div>
               </div>
@@ -137,13 +174,22 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onVideosUploaded, onUploadSta
       )}
 
       {uploadedKeys.length > 0 && (
-        <div className="mt-4 p-4 bg-green-50 rounded-md">
-          <h4 className="font-medium text-green-800 mb-2">Uploaded Videos:</h4>
-          <ul className="space-y-1">
+        <div className="bg-green-50/70 backdrop-blur-sm rounded-xl p-4 border border-green-200">
+          <div className="flex items-center mb-3">
+            <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
+              <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h4 className="font-semibold text-green-800">Videos Ready ({uploadedKeys.length})</h4>
+          </div>
+          <div className="grid grid-cols-1 gap-2">
             {uploadedKeys.map((key, index) => (
-              <li key={index} className="text-sm text-green-700">{key.split('/').pop()}</li>
+              <div key={index} className="text-sm text-green-700 bg-white/50 rounded-lg px-3 py-2">
+                {key.split('/').pop()}
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
     </div>
