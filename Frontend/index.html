@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Video Editor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    
+    <script src="https://unpkg.com/wavesurfer.js@7.7.5/dist/wavesurfer.min.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7.7.5/dist/plugins/regions.min.js"></script>
+    
+    <style>
+        body {font-family:'Roboto',sans-serif;background-color:#f0f2f5;color:#333;padding-top:70px;display:flex;flex-direction:column;min-height:100vh;}
+        .navbar {background:linear-gradient(90deg,rgba(0,123,255,1) 0%,rgba(0,86,179,1) 100%);box-shadow:0 2px 4px rgba(0,0,0,.1);position:fixed;width:100%;top:0;z-index:1030;}
+        .navbar-brand {font-weight:700;font-size:1.75rem;display:flex;align-items:center;}
+        .developer-attribution {font-size:0.85rem;color:rgba(255,255,255,0.75);margin-left:auto;padding-right:15px;display:flex;align-items:center;}
+        .container-main {margin-top:30px;flex-grow:1;}
+        .card {margin-bottom:25px;border:1px solid #e0e0e0;border-radius:0.5rem;box-shadow:0 4px 12px rgba(0,0,0,0.08);}
+        .card-header {background-color:#6c757d;color:white;font-weight:500;}
+        .error-message { color: red; font-weight: bold;}
+        .upload-item {display:flex;align-items:center;margin-bottom:8px;}
+        .upload-item-name {flex-grow:1;margin-right:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        #waveform .wavesurfer-region { cursor: grab; }
+        #timeDisplay { font-size: 1.1em; color: #555; letter-spacing: 0.5px; }
+        #manualModeInstruction { font-style: italic; color: #495057; }
+        .footer-connect {background-color:#343a40;color:#f8f9fa;padding:30px 0;text-align:center;margin-top:auto;}
+        @media (max-width:768px){.developer-attribution{display:none;}}
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">AI Video Editor <span class="sparkle-icon">✨</span></a>
+            <span class="developer-attribution">developed by Subhranshu Behera</span>
+        </div>
+    </nav>
+
+    <div class="container container-main">
+        <div class="row">
+            <div class="col-lg-7">
+                <div class="card">
+                    <div class="card-header">Step 1: Upload Your Media</div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="audioFileEl" class="form-label">Audio Track (MP3, WAV)</label>
+                            <input class="form-control" type="file" id="audioFileEl" accept=".mp3,.wav,.aac">
+                            <div class="upload-item mt-2" id="audioUploadArea" style="display:none;"><span class="upload-item-name" id="audioFileNameDisplay"></span><progress id="audioUploadProgress" value="0" max="100" class="me-2" style="height:10px; flex-basis: 150px;"></progress><span class="upload-item-status" id="audioUploadStatus"></span></div>
+                        </div>
+                        <hr>
+                        <div class="mb-3">
+                            <label for="videoFilesEl" class="form-label">Video Files (MP4, MOV - Min 3, Max 6)</label>
+                            <input class="form-control" type="file" id="videoFilesEl" accept=".mp4,.mov" multiple>
+                            <div id="videoUploadsStatusArea" class="mt-2"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" id="audioSelectorCard" style="display: none;">
+                    <div class="card-header">Step 2: Select Audio Segment & Reel Duration</div>
+                    <div class="card-body">
+                        <div id="waveform" style="border: 1px solid #ddd; border-radius: 4px; background-color: #f8f9fa;"></div>
+                        <div class="d-flex justify-content-center align-items-center my-3"><button id="playPreviewBtn" class="btn btn-info me-3 disabled"><i class="fas fa-play me-1"></i> Play Selection</button><div id="timeDisplay" class="fw-bold">00:00 / 00:00</div></div>
+                        <div class="mb-3 px-3">
+                            <label for="durationSlider" class="form-label">Reel Duration: <b id="durationValue">15</b> seconds</label>
+                            <input type="range" class="form-range" min="8" max="60" value="15" id="durationSlider">
+                        </div>
+                        <div id="selectionModeArea" class="alert alert-primary">
+                            <div id="aiModeContent"><div class="d-flex justify-content-between align-items-center"><h5 class="alert-heading mb-0">AI Suggestion</h5><span id="suggestionSpinner" class="spinner-border spinner-border-sm" role="status" style="display: none;"></span></div><p id="aiSuggestionText" class="mb-2 mt-2">Upload an audio file.</p><hr><button id="resuggestBtn" class="btn btn-outline-primary btn-sm disabled">Get Another Suggestion</button></div>
+                            <div id="manualModeContent" style="display: none;"><h5 class="alert-heading">Manual Selection</h5><p class="mb-0">Drag the region or its edges to set your segment.</p></div>
+                        </div>
+                        <div class="text-center"><button id="manualModeToggleBtn" class="btn btn-secondary disabled">Switch to Manual Selection</button></div>
+                        <input type="hidden" id="selectedAudioStart"><input type="hidden" id="selectedAudioEnd">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-5">
+                <div class="card">
+                    <div class="card-header">Step 3: Define Theme & Create</div>
+                    <div class="card-body text-center">
+                        <div class="mb-3 text-start">
+                           <label for="theme" class="form-label">Reel Theme (Optional)</label>
+                           <input type="text" class="form-control" id="theme" placeholder="e.g., Upbeat travel, cinematic" value="AI will suggest a theme"> 
+                        </div>
+                        <hr>
+                        <button id="createReelBtn" class="btn btn-primary btn-lg mb-3" onclick="prepareAndStartEditing()">🚀 Create Reel!</button>
+                        <div id="mainJobStatusCard" class="alert" role="alert"><strong id="mainJobStatusText">Job Status: Idle</strong><div class="progress mt-2" id="mainJobProgressBarContainer" style="display:none; height: 25px;"><div id="mainJobProgressBar" class="progress-bar bg-info" role="progressbar" style="width: 0%;">0%</div></div><div id="mainJobMessage" class="mt-1" style="font-size:0.9em;"></div></div>
+                        <div id="resultLink" class="mt-3"></div>
+                    </div>
+                </div>
+                <div class="card mt-3">
+                    <div class="card-header">Upload Summary</div>
+                    <div class="card-body" style="font-size:0.8em; word-break:break-all;"><p class="mb-2"><strong>Audio S3 Key:</strong><br><span id="summaryAudioKey">None</span></p><hr class="my-2"><p class="mb-1"><strong>Video S3 Keys:</strong></p><ul id="summaryVideoKeys" class="list-unstyled mb-0" style="max-height:100px; overflow-y:auto;"><li>No videos uploaded yet.</li></ul></div>
+                </div>
+            </div>
+        </div>
+    </div> 
+    <footer class="footer-connect"></footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const API_BASE_URL = 'http://awscloudops.in:5000';
+        let jobInterval, uploadedAudioS3Key = null, uploadedVideoS3Keys = [];
+        let wavesurfer = null, aiSuggestions = [], currentSuggestionIndex = 0, currentRegion = null, isManualMode = false;
+    
+        const createReelButton = document.getElementById('createReelBtn');
+        const mainJobStatusText = document.getElementById('mainJobStatusText');
+        const mainJobProgressBarContainer = document.getElementById('mainJobProgressBarContainer');
+        const mainJobProgressBar = document.getElementById('mainJobProgressBar');
+        const mainJobMessage = document.getElementById('mainJobMessage');
+        const resultLinkDiv = document.getElementById('resultLink');
+        const playPreviewBtn = document.getElementById('playPreviewBtn');
+        const resuggestBtn = document.getElementById('resuggestBtn');
+        const manualModeToggleBtn = document.getElementById('manualModeToggleBtn');
+        const aiModeContent = document.getElementById('aiModeContent');
+        const manualModeContent = document.getElementById('manualModeContent');
+        const durationSlider = document.getElementById('durationSlider');
+        const durationValue = document.getElementById('durationValue');
+    
+        document.getElementById('audioFileEl').addEventListener('change', handleAudioUpload);
+        document.getElementById('videoFilesEl').addEventListener('change', handleVideoUploads);
+        manualModeToggleBtn.addEventListener('click', () => toggleManualMode(!isManualMode));
+        durationSlider.addEventListener('input', (e) => { durationValue.textContent = e.target.value; });
+        durationSlider.addEventListener('change', (e) => {
+            const newDur = parseInt(e.target.value, 10);
+            if (!isManualMode) {
+                getNewAISuggestion(newDur);
+            } else if (currentRegion) {
+                const newEnd = currentRegion.start + newDur;
+                currentRegion.setOptions({ end: newEnd });
+            }
+        });
+    
+        async function handleAudioUpload(event) {
+            setCreateButtonState(false, 'Uploading...');
+            document.getElementById('audioSelectorCard').style.display = 'none';
+            if (wavesurfer) wavesurfer.destroy();
+    
+            const file = event.target.files[0];
+            const area = document.getElementById('audioUploadArea'),
+                  nameEl = document.getElementById('audioFileNameDisplay'),
+                  progEl = document.getElementById('audioUploadProgress'),
+                  statEl = document.getElementById('audioUploadStatus');
+    
+            uploadedAudioS3Key = null;
+            document.getElementById('summaryAudioKey').textContent = 'None';
+            if (!file) { setCreateButtonState(true); return; }
+    
+            area.style.display = 'flex';
+            try {
+                const { uploadUrl, s3Key } = await getUploadUrl(file.name, file.type);
+                await uploadFileToS3(file, uploadUrl, progEl, statEl, nameEl);
+                uploadedAudioS3Key = s3Key;
+                document.getElementById('summaryAudioKey').textContent = s3Key;
+                await triggerAudioAnalysis();
+            } catch (err) {
+                statEl.innerHTML = `<span class="error-message">Upload failed: ${err.message}</span>`;
+            }
+            setCreateButtonState(true);
+        }
+    
+        async function getNewAISuggestion(duration) {
+            document.getElementById('aiSuggestionText').textContent = `Finding a ${duration}s segment...`;
+            document.getElementById('suggestionSpinner').style.display = 'inline-block';
+            resuggestBtn.classList.add('disabled');
+            playPreviewBtn.classList.add('disabled');
+    
+            try {
+                const response = await fetch(`${API_BASE_URL}/find-audio-segments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audio_s3_key: uploadedAudioS3Key, reel_duration: duration }) });
+                if (!response.ok) throw new Error(`Server suggestion failed (${response.status})`);
+                
+                const data = await response.json();
+                aiSuggestions = data.ai_suggestions || [];
+    
+                if (aiSuggestions.length > 0) {
+                    currentSuggestionIndex = 0;
+                    displaySuggestion(0, wavesurfer.plugins[0]);
+                } else {
+                    document.getElementById('aiSuggestionText').textContent = `AI couldn't find a segment of that length.`;
+                }
+            } catch (e) {
+                document.getElementById('aiSuggestionText').innerHTML = `<span class="error-message">Error: ${e.message}</span>`;
+            } finally {
+                document.getElementById('suggestionSpinner').style.display = 'none';
+                playPreviewBtn.classList.remove('disabled');
+                if (aiSuggestions.length > 1) resuggestBtn.classList.remove('disabled');
+            }
+        }
+    
+        async function triggerAudioAnalysis() {
+            const initialDuration = parseInt(durationSlider.value, 10);
+            document.getElementById('audioSelectorCard').style.display = 'block';
+            
+            const downloadData = await fetch(`${API_BASE_URL}/generate-download-url?s3_key=${uploadedAudioS3Key}`).then(r => r.json());
+            await setupWaveform(downloadData.url);
+            await getNewAISuggestion(initialDuration);
+        }
+    
+        function setupWaveform(url) {
+            return new Promise((resolve, reject) => {
+                if (wavesurfer) wavesurfer.destroy();
+                
+                wavesurfer = WaveSurfer.create({ container: '#waveform', height: 90, url: url, waveColor: '#adb5bd', progressColor: '#343a40' });
+                const wsRegions = wavesurfer.registerPlugin(WaveSurfer.Regions.create());
+    
+                wavesurfer.on('ready', () => {
+                    document.getElementById('timeDisplay').textContent = `00:00 / ${formatTime(wavesurfer.getDuration())}`;
+                    manualModeToggleBtn.classList.remove('disabled');
+                    playPreviewBtn.classList.remove('disabled');
+                    toggleManualMode(false, true);
+                    resolve();
+                });
+    
+                wavesurfer.on('error', (e) => reject(e));
+                wavesurfer.on('timeupdate', (t) => document.getElementById('timeDisplay').textContent = `${formatTime(t)} / ${formatTime(wavesurfer.getDuration())}`);
+                
+                wsRegions.on('region-out', () => { wavesurfer.pause(); });
+                wsRegions.on('region-updated', (r) => {
+                    document.getElementById('selectedAudioStart').value = r.start.toFixed(4);
+                    document.getElementById('selectedAudioEnd').value = r.end.toFixed(4);
+                    const newDur = Math.round(r.end - r.start);
+                    durationSlider.value = newDur;
+                    durationValue.textContent = newDur;
+                });
+    
+                wsRegions.on('region-clicked', (r, e) => { e.stopPropagation(); r.play(); });
+                wavesurfer.on('pause', () => { playPreviewBtn.innerHTML = '<i class="fas fa-play me-1"></i> Play Selection'; });
+                wavesurfer.on('play', () => { playPreviewBtn.innerHTML = '<i class="fas fa-pause me-1"></i> Pause'; });
+    
+                playPreviewBtn.onclick = () => { wavesurfer.isPlaying() ? wavesurfer.pause() : (currentRegion && currentRegion.play()); };
+                resuggestBtn.onclick = () => { toggleManualMode(false); if (aiSuggestions.length > 0) { currentSuggestionIndex = (currentSuggestionIndex + 1) % aiSuggestions.length; displaySuggestion(currentSuggestionIndex, wsRegions); } };
+            });
+        }
+    
+        function toggleManualMode(manual, isInitial = false) {
+            isManualMode = manual;
+            if (isManualMode) {
+                aiModeContent.style.display = 'none';
+                manualModeContent.style.display = 'block';
+                manualModeToggleBtn.textContent = 'Switch back to AI Suggestions';
+                if(currentRegion) currentRegion.setOptions({ drag: true, resize: true });
+            } else {
+                manualModeContent.style.display = 'none';
+                aiModeContent.style.display = 'block';
+                manualModeToggleBtn.textContent = 'Switch to Manual Selection';
+                if(currentRegion) currentRegion.setOptions({ drag: false, resize: false });
+                if(!isInitial) displaySuggestion(currentSuggestionIndex, wavesurfer.plugins[0]);
+            }
+        }
+    
+        function displaySuggestion(index, wsRegionsPlugin) {
+            const suggestion = aiSuggestions[index];
+            if (!suggestion) return;
+    
+            document.getElementById('aiSuggestionText').textContent = suggestion.reasoning;
+            document.getElementById('selectedAudioStart').value = suggestion.start_time;
+            document.getElementById('selectedAudioEnd').value = suggestion.end_time;
+    
+            const newDur = Math.round(suggestion.end_time - suggestion.start_time);
+            durationSlider.value = newDur;
+            durationValue.textContent = newDur;
+    
+            wsRegionsPlugin.clearRegions();
+            currentRegion = wsRegionsPlugin.addRegion({ start: suggestion.start_time, end: suggestion.end_time, color: 'rgba(0, 123, 255, 0.25)', drag: false, resize: false });
+        }
+    
+        function formatTime(s) { const m = Math.floor(s / 60); return `${String(m).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`; }
+    
+        async function prepareAndStartEditing() {
+            setCreateButtonState(false);
+            resultLinkDiv.innerHTML = '';
+            if (!uploadedAudioS3Key) { alert('Please upload an audio file first.'); setCreateButtonState(true); return; }
+            if (uploadedVideoS3Keys.length < 3) { alert(`Please upload at least 3 video files.`); setCreateButtonState(true); return; }
+    
+            const start = document.getElementById('selectedAudioStart').value,
+                  end = document.getElementById('selectedAudioEnd').value;
+    
+            if (!start || !end) { alert('Audio segment not selected.'); setCreateButtonState(true); return; }
+            
+            updateMainJobStatus(null, "QUEUED", 1, "Sending job request to server...");
+            const payload = { audio_s3_key: uploadedAudioS3Key, video_s3_keys: uploadedVideoS3Keys, theme: document.getElementById('theme').value, audio_start_sec: parseFloat(start), audio_end_sec: parseFloat(end) };
+            try {
+                const response = await fetch(`${API_BASE_URL}/start-edit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                const data = await response.json();
+                if (response.ok) {
+                    if (jobInterval) clearInterval(jobInterval);
+                    jobInterval = setInterval(() => checkJobStatus(data.job_id), 3000);
+                } else {
+                    updateMainJobStatus(null, "ERROR", 0, `Error: ${data.error || response.statusText}`);
+                    setCreateButtonState(true);
+                }
+            } catch (e) {
+                updateMainJobStatus(null, "ERROR", 0, `Network Error: ${e.message}`);
+                setCreateButtonState(true);
+            }
+        }
+    
+        async function handleVideoUploads(event) {
+            const files = event.target.files;
+            const statusArea = document.getElementById('videoUploadsStatusArea');
+            const summaryVideoKeysEl = document.getElementById('summaryVideoKeys');
+    
+            statusArea.innerHTML = '';
+            summaryVideoKeysEl.innerHTML = '<li>No videos uploaded yet.</li>';
+            uploadedVideoS3Keys = [];
+            
+            if (!files.length) return;
+            if (files.length < 3 || files.length > 6) { statusArea.innerHTML = '<p class="error-message">Please select between 3 and 6 video files.</p>'; event.target.value = ""; return; }
+    
+            setCreateButtonState(false, "Uploading Videos...");
+            summaryVideoKeysEl.innerHTML = '';
+            let successfulUploadCount = 0;
+    
+            for (const file of files) {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'upload-item';
+                const itemNameSpan = document.createElement('span');
+                itemNameSpan.className = 'upload-item-name';
+                itemNameSpan.textContent = file.name;
+                const itemStatus = document.createElement('span');
+                itemStatus.className = 'upload-item-status';
+                const itemProgress = document.createElement('progress');
+                itemProgress.value = 0;
+                itemProgress.max = 100;
+                itemProgress.style.width = '100px';
+                itemDiv.append(itemNameSpan, itemProgress, itemStatus);
+                statusArea.appendChild(itemDiv);
+                try {
+                    const { uploadUrl, s3Key } = await getUploadUrl(file.name, file.type);
+                    await uploadFileToS3(file, uploadUrl, itemProgress, itemStatus, itemNameSpan);
+                    uploadedVideoS3Keys.push(s3Key);
+                    const li = document.createElement('li');
+                    li.textContent = s3Key;
+                    summaryVideoKeysEl.appendChild(li);
+                    successfulUploadCount++;
+                } catch (error) {
+                    itemStatus.innerHTML = '<span class="error-message">Upload failed</span>';
+                }
+            }
+            if (successfulUploadCount !== files.length) {
+                statusArea.insertAdjacentHTML('beforeend', '<p class="error-message mt-2 fw-bold">Some video uploads failed. Please review.</p>');
+            }
+            setCreateButtonState(true);
+        }
+    
+        async function getUploadUrl(filename, fileType) {
+            const response = await fetch(`${API_BASE_URL}/generate-upload-url`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename, fileType }) });
+            if (!response.ok) throw new Error(`Server error (${response.status})`);
+            return response.json();
+        }
+    
+        async function uploadFileToS3(file, url, progressElement, statusElement, fileNameElement) {
+            return new Promise((resolve, reject) => {
+                if(fileNameElement)fileNameElement.textContent = file.name;
+                statusElement.textContent = 'Uploading... 0%';
+                progressElement.value = 0;
+                const xhr = new XMLHttpRequest();
+                xhr.open('PUT', url);
+                xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+                xhr.upload.onprogress = (event) => { if (event.lengthComputable) { const percent = Math.round((event.loaded / event.total) * 100); progressElement.value = percent; statusElement.textContent = `Uploading... ${percent}%`; } };
+                xhr.onload = () => { if (xhr.status >= 200 && xhr.status < 300) { statusElement.innerHTML = '<span style="color:green;">✓ Uploaded successfully!</span>'; resolve(); } else { reject(new Error(`S3 Upload Error: Status ${xhr.status}`)); } };
+                xhr.onerror = () => reject(new Error('Network error during upload.'));
+                xhr.send(file);
+            });
+        }
+    
+        function setCreateButtonState(enabled, text = '🚀 Create Reel!') {
+            createReelButton.disabled = !enabled;
+            createReelButton.innerHTML = enabled ? text : '<span class="spinner-border spinner-border-sm"></span> Processing...';
+        }
+    
+        function updateMainJobStatus(jobId, status, progress, message, downloadUrl = null) {
+            mainJobStatusText.textContent = `Job Status: ${status}`;
+            mainJobMessage.textContent = message;
+            if (status === 'QUEUED' || status === 'PROGRESS') {
+                mainJobProgressBarContainer.style.display = 'flex';
+                mainJobProgressBar.style.width = `${progress}%`;
+                mainJobProgressBar.textContent = `${progress}%`;
+            } else {
+                mainJobProgressBarContainer.style.display = 'none';
+            }
+            if (status === 'SUCCESS' && downloadUrl) {
+                resultLinkDiv.innerHTML = `<a href="${downloadUrl}" target="_blank" class="btn btn-success btn-lg mt-2">🎉 Download Your Reel! 🎉</a>`;
+            }
+        }
+    
+        async function checkJobStatus(jobId) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/job-status?job_id=${jobId}`);
+                if (!response.ok) return;
+                const data = await response.json();
+                updateMainJobStatus(jobId, data.status, data.progress, data.message, data.download_url);
+                if (data.status === 'SUCCESS' || data.status === 'FAILURE') {
+                    clearInterval(jobInterval);
+                    setCreateButtonState(true, 'Create Another Reel?');
+                }
+            } catch (e) {
+                console.error("Error fetching job status:", e);
+                clearInterval(jobInterval);
+            }
+        }
+    </script>
+</body>
+</html>
