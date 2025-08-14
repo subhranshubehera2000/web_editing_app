@@ -59,8 +59,6 @@ services:
     container_name: ai-editor-frontend
     ports:
       - "80:80"
-    environment:
-      - REACT_APP_API_BASE_URL=http://localhost:5000
     depends_on:
       - api
     restart: unless-stopped
