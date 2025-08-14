@@ -1,0 +1,73 @@
+
+services:
+  # Redis service for Celery broker and result backend
+  redis:
+    image: redis:7-alpine
+    container_name: ai-editor-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # Backend API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: ai-editor-api
+    ports:
+      - "5000:5000"
+    environment:
+      - S3_INPUT_BUCKET=${S3_INPUT_BUCKET:-ai-edit-input-bucket}
+      - S3_OUTPUT_BUCKET=${S3_OUTPUT_BUCKET:-ai-edit-output-bucket}
+      - S3_REGION=${S3_REGION:-ap-south-1}
+      - AWS_REGION=${AWS_REGION:-ap-south-1}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Celery worker service
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: ai-editor-worker
+    environment:
+      - S3_INPUT_BUCKET=${S3_INPUT_BUCKET:-ai-edit-input-bucket}
+      - S3_OUTPUT_BUCKET=${S3_OUTPUT_BUCKET:-ai-edit-output-bucket}
+      - S3_REGION=${S3_REGION:-ap-south-1}
+      - AWS_REGION=${AWS_REGION:-ap-south-1}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    depends_on:
+      - redis
+      - api
+    restart: unless-stopped
+
+  # Frontend service
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: ai-editor-frontend
+    ports:
+      - "80:80"
+    environment:
+      - REACT_APP_API_BASE_URL=http://localhost:5000
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+
+networks:
+  default:
+    name: ai-editor-network

@@ -1,7 +1,7 @@
 # Dockerfile.api
 
 # Use an official Python runtime as a parent image
-FROM python:3.12-slim-buster 
+FROM python:3.12-slim 
 # Or python:3.11-slim-buster, etc., matching your development environment Python version
 
 # Set the working directory in the container
@@ -25,9 +25,12 @@ COPY app.py .
 # If app.py imports constants or helper functions from other .py files that it needs at runtime (but not the full main_editor)
 # you might need to copy them too. For now, assuming app.py is fairly self-contained or imports what's in requirements.txt.
 # If main_editor.py contains DEFINITIONS app.py imports (like DEFAULT_REEL_THEME_PLACEHOLDER), copy it too.
-COPY main_editor.py . # Because app.py imports defaults from it
-# COPY tasks.py . # If app.py imports Celery task definitions for AsyncResult type hinting (often needed)
-COPY tasks.py . # app.py uses tasks.celery_app for AsyncResult
+COPY main_editor.py .
+COPY tasks.py .
+COPY audio_analyzer.py .
+COPY bedrock_director.py .
+COPY video_analyzer.py .
+COPY reel_assembler.py .
 
 # Make port 5000 available to the world outside this container
 EXPOSE 5000

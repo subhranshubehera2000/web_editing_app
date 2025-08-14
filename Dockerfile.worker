@@ -1,7 +1,7 @@
 # Dockerfile.worker
 
 # Use an official Python runtime as a parent image
-FROM python:3.12-slim-buster 
+FROM python:3.12-slim 
 # Or python:3.11-slim-buster, matching your development Python version
 
 # Set the working directory in the container
@@ -33,15 +33,12 @@ COPY bedrock_director.py .
 COPY reel_assembler.py .
 # If you have any other utility .py files they import, copy them too.
 
-# Set environment variables (can also be set via Kubernetes ConfigMaps/Secrets at runtime)
-# These are critical for the worker to connect to Redis and S3
-ENV CELERY_BROKER_URL="redis://your_redis_host:6379/0" # REPLACE your_redis_host (use 'redis-service' if Redis is a K8s service)
-ENV CELERY_RESULT_BACKEND="redis://your_redis_host:6379/0" # REPLACE
-ENV S3_INPUT_BUCKET="yourname-ai-editor-input-uploads"  # REPLACE
-ENV S3_OUTPUT_BUCKET="yourname-ai-editor-output-reels" # REPLACE
-ENV S3_REGION="ap-south-1" # REPLACE if different
-# You might also want to set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY if NOT using IAM Roles for Service Accounts (IRSA) in EKS
-# but IRSA is the recommended secure way.
+# Set environment variables
+ENV CELERY_BROKER_URL="redis://redis:6379/0"
+ENV CELERY_RESULT_BACKEND="redis://redis:6379/0"
+ENV S3_INPUT_BUCKET="ai-edit-input-bucket"
+ENV S3_OUTPUT_BUCKET="ai-edit-output-bucket"
+ENV S3_REGION="ap-south-1"
 
 # Command to run the Celery worker
 # -A tasks.celery_app: Points to the Celery app instance in tasks.py
