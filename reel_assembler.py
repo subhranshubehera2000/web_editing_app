@@ -42,6 +42,59 @@ def parse_effect_with_value(effect_name_str, default_value_if_not_specified=None
         except ValueError: print(f"Warn: Val parse fail simple for '{effect_name_str}'."); return name_part, default_value_if_not_specified
     return effect_name_str, default_value_if_not_specified
 
+def parse_dictionary_effect(effect_dict):
+    """
+    Parse dictionary-format effects from AI.
+    Expected format: {'name': 'effect_name', 'settings': {...}}
+    Returns: (effect_name, effect_value) tuple compatible with existing effect handlers
+    """
+    if not isinstance(effect_dict, dict) or 'name' not in effect_dict:
+        print(f"Invalid dictionary effect format: {effect_dict}")
+        return str(effect_dict), None
+    
+    effect_name = effect_dict['name']
+    settings = effect_dict.get('settings', {})
+    
+    if effect_name == 'color_grade':
+        look = settings.get('look', '')
+        color_mapping = {
+            'warm_tropical': 'WarmVintage',
+            'warm': 'WarmVintage', 
+            'tropical': 'WarmVintage',
+            'vibrant': 'VibrantPop',
+            'pop': 'VibrantPop',
+            'cinematic': 'CoolCinematic',
+            'cool': 'CoolCinematic',
+            'monochrome': 'MonochromeClassic',
+            'classic': 'MonochromeClassic',
+            'natural': 'NaturalEnhance',
+            'enhance': 'NaturalEnhance'
+        }
+        
+        mapped_style = None
+        look_lower = look.lower()
+        for key, style in color_mapping.items():
+            if key in look_lower:
+                mapped_style = style
+                break
+        
+        if mapped_style:
+            print(f"    Mapped color_grade look '{look}' to style '{mapped_style}'")
+            return 'ColorGrade', mapped_style
+        else:
+            print(f"    Unknown color_grade look '{look}', using NaturalEnhance")
+            return 'ColorGrade', 'NaturalEnhance'
+    
+    elif effect_name in ['slow_motion', 'fast_forward']:
+        speed_factor = settings.get('factor', 1.0)
+        if effect_name == 'slow_motion':
+            return 'SlowMotion', speed_factor
+        else:
+            return 'FastForward', speed_factor
+    
+    print(f"    Unknown dictionary effect '{effect_name}', treating as unrecognized")
+    return effect_name, settings
+
 def apply_ken_burns_zoom(clip, zoom_start_scale=1.0, zoom_end_scale=1.1):
     if not hasattr(clip, 'duration') or clip.duration is None or clip.duration <= 0: return clip
     if not hasattr(clip, 'size') or not isinstance(clip.size, (list, tuple)) or len(clip.size) != 2: return clip
@@ -95,7 +148,16 @@ def apply_effects(clip, effect_names_list):
 
     for effect_full_name_from_ai in effect_names_list:
         clip_before_this_effect = current_processing_clip
-        parsed_effect_name, parsed_value = parse_effect_with_value(effect_full_name_from_ai)
+        
+        if isinstance(effect_full_name_from_ai, dict):
+            parsed_effect_name, parsed_value = parse_dictionary_effect(effect_full_name_from_ai)
+        elif isinstance(effect_full_name_from_ai, str):
+            parsed_effect_name, parsed_value = parse_effect_with_value(effect_full_name_from_ai)
+        else:
+            print(f"    Unknown effect format: {effect_full_name_from_ai}. Skipping.")
+            processed_by_this_effect_iteration = clip_before_this_effect
+            continue
+            
         original_duration_for_effect = clip_before_this_effect.duration if clip_before_this_effect.duration is not None else 0
 
         processed_by_this_effect_iteration = None
@@ -106,6 +168,9 @@ def apply_effects(clip, effect_names_list):
         elif parsed_effect_name == "FastForward" and parsed_value is not None and parsed_value > 1:
             processed_by_this_effect_iteration = clip_before_this_effect.fx(vfx.speedx, factor=parsed_value)
             print(f"    DEBUG: FastForward effect - Original: {original_duration_for_effect:.6f}s, New: {processed_by_this_effect_iteration.duration:.6f}s")
+        elif parsed_effect_name == "ColorGrade" and parsed_value is not None:
+            processed_by_this_effect_iteration = apply_color_grade(clip_before_this_effect, parsed_value)
+            print(f"    DEBUG: ColorGrade effect applied - Style: {parsed_value}")
         elif parsed_effect_name == "SlightZoomIn" and parsed_value is not None and 0 < parsed_value <= 0.5:
             zoom_end_scale = 1.0 + parsed_value
             processed_by_this_effect_iteration = apply_ken_burns_zoom(clip_before_this_effect, zoom_start_scale=1.0, zoom_end_scale=zoom_end_scale)
