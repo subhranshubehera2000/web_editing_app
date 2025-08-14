@@ -102,8 +102,10 @@ def apply_effects(clip, effect_names_list):
 
         if parsed_effect_name == "SlowMotion" and parsed_value is not None and 0 < parsed_value < 1:
             processed_by_this_effect_iteration = clip_before_this_effect.fx(vfx.speedx, factor=parsed_value)
+            print(f"    DEBUG: SlowMotion effect - Original: {original_duration_for_effect:.6f}s, New: {processed_by_this_effect_iteration.duration:.6f}s")
         elif parsed_effect_name == "FastForward" and parsed_value is not None and parsed_value > 1:
             processed_by_this_effect_iteration = clip_before_this_effect.fx(vfx.speedx, factor=parsed_value)
+            print(f"    DEBUG: FastForward effect - Original: {original_duration_for_effect:.6f}s, New: {processed_by_this_effect_iteration.duration:.6f}s")
         elif parsed_effect_name == "SlightZoomIn" and parsed_value is not None and 0 < parsed_value <= 0.5:
             zoom_end_scale = 1.0 + parsed_value
             processed_by_this_effect_iteration = apply_ken_burns_zoom(clip_before_this_effect, zoom_start_scale=1.0, zoom_end_scale=zoom_end_scale)
@@ -123,7 +125,13 @@ def apply_effects(clip, effect_names_list):
                 cmd_t=["ffmpeg","-y","-i",tmp_in,"-vf",f"vidstabtransform=input={tmp_trf}:zoom=0:smoothing={smoothing_level},unsharp=5:5:0.7:3:3:0.3","-c:v","libx264","-preset","medium","-crf","20","-r",str(fps_w),tmp_out]
                 subprocess.run(cmd_t,check=True,capture_output=True,text=True,timeout=90)
                 if os.path.exists(tmp_out) and os.path.getsize(tmp_out)>100:
-                    processed_by_this_effect_iteration=VideoFileClip(tmp_out,audio=False,fps_source="fps").set_duration(original_duration_for_effect)
+                    stabilized_clip = VideoFileClip(tmp_out,audio=False,fps_source="fps")
+                    print(f"    DEBUG: Stabilized clip duration: {stabilized_clip.duration:.6f}s vs original: {original_duration_for_effect:.6f}s")
+                    if abs(stabilized_clip.duration - original_duration_for_effect) > 0.1:
+                        print(f"    DEBUG: Forcing duration correction for stabilization")
+                        processed_by_this_effect_iteration = stabilized_clip.set_duration(original_duration_for_effect)
+                    else:
+                        processed_by_this_effect_iteration = stabilized_clip
                 else: processed_by_this_effect_iteration=clip_before_this_effect
             except Exception as e_s:print(f"    ERR stab {effect_full_name_from_ai}:{e_s}");processed_by_this_effect_iteration=clip_before_this_effect
         else:
@@ -191,6 +199,13 @@ def assemble_reel(edit_plan_data, all_video_shots_metadata_dict, audio_data, out
             
             print(f"  DEBUG: Final processed clip duration: {proc_clip_seg.duration:.6f}s")
             
+            if proc_clip_seg.duration is None or proc_clip_seg.duration <= 0:
+                print(f"  ERROR: Invalid clip duration ({proc_clip_seg.duration}), skipping segment")
+                proc_clip_seg.close()
+                continue
+            elif proc_clip_seg.duration < 0.05:  # Less than 50ms
+                print(f"  WARNING: Very short clip ({proc_clip_seg.duration:.6f}s) may cause concatenation issues")
+            
             processed_clips_info.append({"clip":proc_clip_seg,"transition_to_next":seg_plan.get("transition_to_next","Cut").lower()})
             src_clip_seg.close() # Close original subclip
         except Exception as e_s:
@@ -236,6 +251,20 @@ def assemble_reel(edit_plan_data, all_video_shots_metadata_dict, audio_data, out
         final_vc=concatenate_videoclips(final_concat_clips,method="chain")
         print(f"DEBUG: Concatenated video duration: {final_vc.duration:.6f}s")
         print(f"DEBUG: Duration difference: {final_vc.duration - total_expected_duration:.6f}s")
+        
+        duration_loss = total_expected_duration - final_vc.duration
+        if duration_loss > 0.1:  # More than 100ms loss
+            print(f"WARNING: Significant duration loss detected ({duration_loss:.6f}s)")
+            print(f"DEBUG: Attempting duration correction...")
+            try:
+                corrected_vc = final_vc.set_duration(total_expected_duration)
+                print(f"DEBUG: Duration correction applied - New duration: {corrected_vc.duration:.6f}s")
+                final_vc.close()
+                final_vc = corrected_vc
+            except Exception as e:
+                print(f"DEBUG: Duration correction failed: {e}")
+        elif duration_loss < -0.1:  # Video is longer than expected
+            print(f"WARNING: Video is longer than expected by {-duration_loss:.6f}s")
         if final_vc.duration is None or final_vc.duration<=0:print(f"ERR: Vid composition has invalid duration.");return False,None
         
         # Load the full audio file
