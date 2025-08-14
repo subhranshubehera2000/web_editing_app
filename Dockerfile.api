@@ -7,10 +7,12 @@ FROM python:3.12-slim
 # Set the working directory in the container
 WORKDIR /usr/src/app
 
-# Install system dependencies that might be needed (if any)
-# For Flask and boto3, usually not many extra system deps are needed with slim images.
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     && rm -rf /var/lib/apt/lists/*
+# Install system dependencies needed for audio processing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsndfile1 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements file into the container at /usr/src/app
 COPY requirements.txt ./

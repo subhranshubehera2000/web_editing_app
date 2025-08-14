@@ -17,6 +17,7 @@ const AudioSelector: React.FC<AudioSelectorProps> = ({ audioS3Key, onSegmentSele
   const [currentRegion, setCurrentRegion] = useState<any>(null);
   const [isManualMode, setIsManualMode] = useState<boolean>(false);
   const [duration, setDuration] = useState<number>(15);
+  const [selectedDuration, setSelectedDuration] = useState<number>(15);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [timeDisplay, setTimeDisplay] = useState<string>('00:00 / 00:00');
   
@@ -69,6 +70,7 @@ const AudioSelector: React.FC<AudioSelectorProps> = ({ audioS3Key, onSegmentSele
       regionsPluginRef.current.on('region-created', (region: any) => {
         if (isManualMode) {
           setCurrentRegion(region);
+          setSelectedDuration(Math.round((region.end - region.start) * 10) / 10);
           onSegmentSelected(region.start, region.end);
         }
       });
@@ -76,6 +78,7 @@ const AudioSelector: React.FC<AudioSelectorProps> = ({ audioS3Key, onSegmentSele
       regionsPluginRef.current.on('region-updated', (region: any) => {
         if (isManualMode) {
           setCurrentRegion(region);
+          setSelectedDuration(Math.round((region.end - region.start) * 10) / 10);
           onSegmentSelected(region.start, region.end);
         }
       });
@@ -96,6 +99,7 @@ const AudioSelector: React.FC<AudioSelectorProps> = ({ audioS3Key, onSegmentSele
             });
             
             setCurrentRegion(newRegion);
+            setSelectedDuration(Math.round(regionDuration * 10) / 10);
             onSegmentSelected(clickTime, clickTime + regionDuration);
           }
         }, 10);
@@ -173,8 +177,10 @@ const AudioSelector: React.FC<AudioSelectorProps> = ({ audioS3Key, onSegmentSele
       
       if (!newManualMode && aiSuggestions.length > 0) {
         displaySuggestion(currentSuggestionIndex);
+        setSelectedDuration(duration);
       } else if (newManualMode) {
         setCurrentRegion(null);
+        setSelectedDuration(duration);
       }
     }
   };
@@ -220,7 +226,7 @@ const AudioSelector: React.FC<AudioSelectorProps> = ({ audioS3Key, onSegmentSele
 
       <div className="bg-white/50 backdrop-blur-sm rounded-xl p-6 border border-white/20">
         <label htmlFor="durationSlider" className="block text-sm font-semibold text-gray-700 mb-4">
-          Reel Duration: <span className="text-lg font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">{duration}</span> seconds
+          Reel Duration: <span className="text-lg font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">{isManualMode ? selectedDuration : duration}</span> seconds
         </label>
         <input
           type="range"
