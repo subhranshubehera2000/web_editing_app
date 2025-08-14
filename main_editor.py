@@ -1,277 +1,190 @@
-# main_editor.py
 import os
 import json
 import shutil
 import time
-import numpy as np 
+import numpy as np
+import cv2
 
-from audio_analyzer import analyze_audio
-from video_analyzer import detect_shots, extract_shot_visual_features
-from bedrock_director import generate_ai_edit_plan, suggest_reel_themes 
+from audio_analyzer import analyze_audio_segment
+from video_analyzer import detect_shots, extract_shot_visual_features, get_visual_content_description
+from bedrock_director import generate_ai_edit_plan, suggest_reel_themes
 from reel_assembler import assemble_reel
 
-# --- Defaults for standalone or if app.py doesn't provide ---
-DEFAULT_REEL_MIN_DURATION_SEC = 10 
-DEFAULT_REEL_MAX_DURATION_SEC = 20 
-# This placeholder string is what the UI might send if user wants AI to suggest.
-# It should match exactly (case-insensitively) what app.py checks for.
-DEFAULT_REEL_THEME_PLACEHOLDER = "ai will suggest a theme" 
-DEFAULT_REEL_THEME_FALLBACK = "Engaging Visual Montage" # Used if AI suggestion fails AND user theme was placeholder/empty
+DEFAULT_REEL_THEME_PLACEHOLDER = "ai will suggest a theme"
+DEFAULT_REEL_THEME_FALLBACK = "Engaging Visual Montage"
 
-PROFILE_STEPS = True # For development timing
+PROFILE_STEPS = True
 
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer): return int(obj)
-        if isinstance(obj, np.floating):
-            if np.isnan(obj): return None 
-            if np.isinf(obj): return str(obj)
-            return float(obj)
+        if isinstance(obj, np.floating): return float(obj)
         if isinstance(obj, np.ndarray): return obj.tolist()
         if isinstance(obj, np.bool_): return bool(obj)
         return super(NpEncoder, self).default(obj)
 
 def create_ai_edited_reel(
-    user_theme_override, # Can be user's theme, the placeholder string, or None (from app.py)
-    user_min_duration,
-    user_max_duration,
-    audio_file_full_path,      # FULL PATH to the (downloaded) audio file
-    video_file_full_paths_list, # List of FULL PATHS to (downloaded) video files
-    output_base_dir_for_job,      # e.g., /tmp/ai_editor_job_XXXXXX/output
+    user_theme_override,
+    audio_file_full_path,
+    video_file_full_paths_list,
+    output_base_dir_for_job,
+    audio_segment_start_sec,
+    audio_segment_end_sec,
     job_id="unknown_job",
-    progress_update_callback=None  # Callback function for progress
+    progress_update_callback=None
 ):
-    min_duration = int(user_min_duration) if user_min_duration is not None else DEFAULT_REEL_MIN_DURATION_SEC
-    max_duration = int(user_max_duration) if user_max_duration is not None else DEFAULT_REEL_MAX_DURATION_SEC
-    
+    reel_target_duration = audio_segment_end_sec - audio_segment_start_sec
+    min_reel_duration = reel_target_duration - 0.2
+    max_reel_duration = reel_target_duration + 0.2
+
     if not os.path.exists(output_base_dir_for_job):
-        os.makedirs(output_base_dir_for_job, exist_ok=True) 
-    
-    # Define output paths relative to job's output dir
-    edit_plan_file = os.path.join(output_base_dir_for_job, f"ai_edit_plan_job_{job_id}.json")
-    all_shots_metadata_file = os.path.join(output_base_dir_for_job, f"all_shots_metadata_job_{job_id}.json")
-    audio_analysis_file = os.path.join(output_base_dir_for_job, f"audio_analysis_summary_job_{job_id}.json")
-    # The assembler will use output_base_dir_for_job to construct the final path too for consistency if modified
-    final_reel_file_output_path_in_job_dir = os.path.join(output_base_dir_for_job, f"final_ai_reel_job_{job_id}.mp4")
+        os.makedirs(output_base_dir_for_job, exist_ok=True)
+
+    edit_plan_file = os.path.join(output_base_dir_for_job, f"ai_edit_plan_{job_id}.json")
+    all_shots_metadata_file = os.path.join(output_base_dir_for_job, f"all_shots_metadata_{job_id}.json")
+    audio_analysis_file = os.path.join(output_base_dir_for_job, f"audio_analysis_{job_id}.json")
+    final_reel_file_output_path = os.path.join(output_base_dir_for_job, f"final_reel_{job_id}.mp4")
 
     def report_progress(percent, message_detail):
-        print(f"[MainEditor Progress Job {job_id}] {percent}% - {message_detail}")
-        if progress_update_callback:
-            progress_update_callback(percent, f"{message_detail}") # Just pass message_detail
-
-    print(f"Starting AI Reel for Job ID: {job_id} in dir {output_base_dir_for_job}")
-    print(f"  Expecting audio at full path: {audio_file_full_path}")
-    for vid_p_idx, vid_p in enumerate(video_file_full_paths_list): print(f"  Expecting video {vid_p_idx+1} at: {vid_p}")
+        if progress_update_callback: progress_update_callback(percent, message_detail)
+        print(f"[MainEditor Progress {job_id}] {percent}% - {message_detail}")
 
     overall_start_time = time.time()
-    report_progress(0, "Initializing main editing process...")
+    report_progress(0, "Initializing editing process...")
 
-    # --- Step 1: Analyze Specified Audio ---
-    step_start_time = time.time(); report_progress(5, "Analyzing audio file...")
-    if not os.path.exists(audio_file_full_path):
-        msg = f"Audio file '{audio_file_full_path}' (passed as full path) NOT FOUND."
-        report_progress(10, msg); print(f"Error: {msg}"); return False, None 
-    
-    audio_data = analyze_audio(audio_file_full_path) 
-    if not audio_data: 
-        report_progress(10, "Audio analysis failed."); print("Error: Audio analysis failed."); return False, None
-    report_progress(20, "Audio analysis complete.")
-    try: 
-        with open(audio_analysis_file, "w") as f: json.dump(audio_data, f, indent=2, cls=NpEncoder) 
-        print(f"Audio analysis summary saved to {audio_analysis_file}")
-    except Exception as e: print(f"Warn: Could not save audio summary: {e}")
+    # --- Step 1: Analyze Specified Audio Segment ---
+    step_start_time = time.time(); report_progress(5, "Analyzing audio segment...")
+    audio_data = analyze_audio_segment(audio_file_full_path, start_sec=audio_segment_start_sec, end_sec=audio_segment_end_sec)
+    if not audio_data:
+        report_progress(10, "Detailed audio analysis on segment failed."); return False, None
+    report_progress(20, "Audio segment analysis complete.")
+    try:
+        with open(audio_analysis_file, "w") as f: json.dump(audio_data, f, indent=2, cls=NpEncoder)
+    except Exception as e: print(f"Warn: Could not save audio analysis file: {e}")
     if PROFILE_STEPS: print(f"Step 1 duration: {time.time() - step_start_time:.2f}s")
 
-    # --- Step 2: Analyze Specified Video Clips ---
-    step_start_time = time.time(); report_progress(21, "Starting video analysis...")
-    all_shots_metadata_list = []; global_shot_id_counter = 0
-    if not video_file_full_paths_list: 
-        report_progress(22, "No videos specified."); print("Error:No videos specified."); return False, None
-    
-    num_videos = len(video_file_full_paths_list)
-    video_analysis_total_progress_share = 39 # Video analysis makes up from 21% to 60% (39 points)
 
-    for video_idx, current_video_full_path in enumerate(video_file_full_paths_list):
-        video_file_basename = os.path.basename(current_video_full_path)
-        # Calculate progress within this step more granularly
-        progress_within_this_step_start = 21 + int(((video_idx) / num_videos) * video_analysis_total_progress_share)
-        report_progress(progress_within_this_step_start, f"Analyzing video {video_idx + 1}/{num_videos}: {video_file_basename}")
-        
-        if not os.path.exists(current_video_full_path) or os.path.getsize(current_video_full_path)<1024: 
-            print(f"    Warning: Video file {current_video_full_path} missing/small after download. Skipping."); continue
-        
-        shots_in_this_video = detect_shots(current_video_full_path) # detect_shots expects a full path
-        if not shots_in_this_video: 
-            print(f"    No shots detected in {video_file_basename}."); continue
+    # --- Step 2: Analyze Video Clips ---
+    step_start_time = time.time(); report_progress(21, "Analyzing video shots & features...")
+    all_shots_metadata_list = []
+    global_shot_id_counter = 0
+    if not video_file_full_paths_list:
+        report_progress(22, "No video files specified."); return False, None
 
-        for shot_info in shots_in_this_video:
-            # IMPORTANT: Ensure shot_info["original_video_path"] from detect_shots IS the full path.
-            # If detect_shots stores relative paths, this needs adjustment.
-            # Assuming detect_shots populates 'original_video_path' with the full path it received.
-            shot_info["global_shot_id"] = global_shot_id_counter
-            print(f"    Extracting features for GID {global_shot_id_counter} (from {video_file_basename}: "
-                  f"{shot_info['start_time_sec']:.2f}s - {shot_info['end_time_sec']:.2f}s, ShotDur: {shot_info['duration_sec']:.2f}s)")
-            
-            if shot_info['duration_sec'] < 0.05: # Min duration for feature extraction
-                print(f"      Skipping feature extraction for very short fragment (duration {shot_info['duration_sec']:.3f}s)."); 
-                visual_features = {"avg_brightness": 0.0, "avg_motion_score": 0.0, "avg_color_rgb": [0,0,0]}
-            else:
-                visual_features = extract_shot_visual_features(
-                    shot_info["original_video_path"], # This must be the full path
-                    shot_info["start_time_sec"],
-                    shot_info["end_time_sec"]
-                )
-            shot_info.update(visual_features)
-            all_shots_metadata_list.append(shot_info)
-            print(f"      Extracted Features: Brightness={visual_features.get('avg_brightness', 0.0):.1f}, "
-                  f"Motion={visual_features.get('avg_motion_score', 0.0):.1f}")
-            global_shot_id_counter += 1
-        
-        progress_within_this_step_end = 21 + int(((video_idx + 1) / num_videos) * video_analysis_total_progress_share)
-        report_progress(progress_within_this_step_end, f"Finished analyzing video {video_idx + 1}/{num_videos}")
+    for video_idx, video_path in enumerate(video_file_full_paths_list):
+        prog = 21 + int((video_idx / len(video_file_full_paths_list)) * 39)
+        report_progress(prog, f"Analyzing video {video_idx + 1}/{len(video_file_full_paths_list)}...")
+        shots_from_scenedetect = detect_shots(video_path)
 
-    if not all_shots_metadata_list: 
-        report_progress(60,"No usable shots extracted from videos."); print("Error: No usable shots found."); return False, None
-    report_progress(60, "Video analysis complete.")
-    try: 
-        with open(all_shots_metadata_file, "w") as f: json.dump(all_shots_metadata_list,f,indent=2,cls=NpEncoder)
-        print(f"All shots metadata saved to {all_shots_metadata_file}")
-    except Exception as e: print(f"Warn: Could not save all_shots_metadata.json: {e}")
-    if PROFILE_STEPS: print(f"Step 2 duration: {time.time() - step_start_time:.2f}s")
-    
-    # --- Step 2.5: Determine Theme ---
-    final_theme_for_edit_plan = DEFAULT_REEL_THEME_FALLBACK # Initialize with a fallback
-
-    # Check if user provided a theme AND it's not the placeholder/empty
-    if user_theme_override and \
-       user_theme_override.strip() != "" and \
-       user_theme_override.strip().lower() != DEFAULT_REEL_THEME_PLACEHOLDER.lower():
-        final_theme_for_edit_plan = user_theme_override
-        report_progress(61, f"Using user-provided theme: '{final_theme_for_edit_plan}'.")
-        print(f"Using user-provided theme: '{final_theme_for_edit_plan}'")
-    else:
-        # User theme is None, empty, or the placeholder string, so attempt AI theme suggestion.
-        report_progress(62, "No specific user theme or placeholder detected; attempting AI theme suggestion...")
-        # Prepare summaries for theme suggestion
-        audio_summary_for_theme_gen = {k: audio_data.get(k) for k in ["tempo", "duration", "simplified_energy_values_at_times"]}
-        video_summary_for_theme_gen = {
-            "num_shots": len(all_shots_metadata_list),
-            "avg_motion_score": np.mean([s.get('avg_motion_score',0) for s in all_shots_metadata_list if s.get('avg_motion_score') is not None] or [0.0]),
-            "avg_brightness": np.mean([s.get('avg_brightness',0) for s in all_shots_metadata_list if s.get('avg_brightness') is not None] or [0.0]),
-            "total_video_duration_sec": sum(s.get('duration_sec',0) for s in all_shots_metadata_list)
-        }
-        ai_suggested_themes_list = suggest_reel_themes(audio_summary_for_theme_gen, video_summary_for_theme_gen, num_suggestions=1)
-        
-        if ai_suggested_themes_list and isinstance(ai_suggested_themes_list, list) and ai_suggested_themes_list:
-            final_theme_for_edit_plan = ai_suggested_themes_list[0] # Auto-use the first suggestion
-            report_progress(65, f"AI suggested theme will be used: '{final_theme_for_edit_plan}'.")
-            print(f"AI successfully suggested theme: '{final_theme_for_edit_plan}'")
+        if shots_from_scenedetect:
+            for shot_info in shots_from_scenedetect:
+                shot_info["global_shot_id"] = global_shot_id_counter
+                visual_features = extract_shot_visual_features(shot_info["original_video_path"], shot_info["start_time_sec"], shot_info["end_time_sec"])
+                shot_info.update(visual_features)
+                all_shots_metadata_list.append(shot_info)
+                global_shot_id_counter += 1
         else:
-            # final_theme_for_edit_plan remains DEFAULT_REEL_THEME_FALLBACK
-            report_progress(65, "AI theme suggestion failed or returned no themes. Using fallback theme.")
-            print(f"AI theme suggestion failed. Using fallback theme: '{final_theme_for_edit_plan}'")
-    
-    # --- Step 3: Generate Edit Plan (using final_theme_for_edit_plan) ---
-    step_start_time = time.time(); report_progress(66, f"Generating AI edit plan with theme: '{final_theme_for_edit_plan}'...")
+            try:
+                cap = cv2.VideoCapture(video_path)
+                if not cap.isOpened():
+                    print(f"    WARNING: Could not open video {video_path} with OpenCV. Skipping.")
+                    continue
+                fps = cap.get(cv2.CAP_PROP_FPS); frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)); cap.release()
+                if fps > 0 and frame_count > 0:
+                    video_duration = frame_count / fps
+                    shot_info = {"original_video_path":video_path,"shot_index_in_video":0,"start_time_sec":0.0,"end_time_sec":video_duration,"duration_sec":video_duration,"global_shot_id":global_shot_id_counter}
+                    visual_features = extract_shot_visual_features(video_path, 0.0, video_duration)
+                    shot_info.update(visual_features)
+                    all_shots_metadata_list.append(shot_info)
+                    global_shot_id_counter += 1
+            except Exception as e: print(f"    ERROR processing full video duration for {video_path}: {e}. Skipping.")
+
+    if not all_shots_metadata_list: report_progress(60, "No usable video shots could be extracted."); return False, None
+    report_progress(60, "Video analysis complete.")
+    with open(all_shots_metadata_file, "w") as f: json.dump(all_shots_metadata_list, f, indent=2, cls=NpEncoder)
+    if PROFILE_STEPS: print(f"Step 2 duration: {time.time() - step_start_time:.2f}s")
+
+
+    # --- Step 2.5: Determine Theme (with new Visual Analysis) ---
+    report_progress(61, "Determining creative theme...")
+    final_theme_for_edit_plan = DEFAULT_REEL_THEME_FALLBACK
+
+    if user_theme_override and user_theme_override.strip().lower() not in ["", DEFAULT_REEL_THEME_PLACEHOLDER.lower()]:
+        final_theme_for_edit_plan = user_theme_override
+        report_progress(62, f"Using user-provided theme: '{final_theme_for_edit_plan}'.")
+    else:
+        report_progress(62, "Performing deep content analysis for theme suggestion...")
+        audio_summary = {k: audio_data.get(k) for k in ["tempo", "duration", "simplified_energy_values_at_times"]}
+
+        shots_to_describe = sorted(all_shots_metadata_list, key=lambda x: x.get('duration_sec', 0), reverse=True)[:4]
+        
+        visual_descriptions = []
+        for shot in shots_to_describe: # <-- Correct loop variable is 'shot'
+            desc = get_visual_content_description(
+                shot["original_video_path"], # <-- Use 'shot' here
+                shot["start_time_sec"],      # <-- and here
+                shot["end_time_sec"]         # <-- and here
+            )
+            visual_descriptions.append(desc)
+            time.sleep(1)
+
+        video_summary = {
+            "num_shots": len(all_shots_metadata_list),
+            "avg_motion_score": np.mean([s.get('avg_motion_score',0) for s in all_shots_metadata_list] or [0]),
+            "avg_brightness": np.mean([s.get('avg_brightness',0) for s in all_shots_metadata_list] or [0]),
+            "visual_content": list(set(visual_descriptions))
+        }
+        ai_suggested_themes_list = suggest_reel_themes(audio_summary, video_summary, num_suggestions=1)
+
+        if ai_suggested_themes_list:
+            final_theme_for_edit_plan = ai_suggested_themes_list[0]
+            report_progress(65, f"AI suggested theme: '{final_theme_for_edit_plan}'.")
+        else:
+            report_progress(65, "AI theme suggestion failed. Using fallback theme.")
+
+
+    # --- Step 3: Generate Edit Plan ---
+    report_progress(66, f"Generating AI edit plan with theme: '{final_theme_for_edit_plan}'...")
     ai_edit_plan = generate_ai_edit_plan(
-        audio_data, all_shots_metadata_list, min_duration, max_duration, reel_theme=final_theme_for_edit_plan
+        audio_data, all_shots_metadata_list, min_reel_duration, max_reel_duration,
+        final_theme_for_edit_plan,
+        audio_segment_start_sec=audio_segment_start_sec
     )
-    if not ai_edit_plan or "edit_plan" not in ai_edit_plan or not ai_edit_plan["edit_plan"]:
-        report_progress(80,"Bedrock failed to generate a valid edit plan."); print("Error:Bedrock plan generation failed."); return False,None
-    report_progress(85,f"AI edit plan generated ({len(ai_edit_plan['edit_plan'])} segments).")
-    try: 
-        with open(edit_plan_file,"w") as f:json.dump(ai_edit_plan,f,indent=2,cls=NpEncoder)
-        print(f"AI Edit Plan saved to: {edit_plan_file}")
-    except Exception as e: print(f"Error saving AI edit plan: {e}")
-    if PROFILE_STEPS:print(f"Step 3 duration: {time.time()-step_start_time:.2f}s")
+    if not ai_edit_plan or not ai_edit_plan.get("edit_plan"):
+        report_progress(80,"AI failed to generate a valid edit plan."); return False,None
+    report_progress(85, "AI edit plan generated.")
+
 
     # --- Step 4: Assemble Reel ---
-    step_start_time = time.time(); report_progress(86, "Starting reel assembly process...")
-    all_shots_dict={s['global_shot_id']:s for s in all_shots_metadata_list};
-    
-    # The assembler will write to final_reel_file_output_path_in_job_dir
-    success_assembly, actual_output_path_from_assembler = assemble_reel(
-        ai_edit_plan,all_shots_dict,audio_data,final_reel_file_output_path_in_job_dir
+    report_progress(86, "Starting reel assembly...")
+    all_shots_dict = {s['global_shot_id']: s for s in all_shots_metadata_list}
+    success_assembly, actual_output_path = assemble_reel(
+        ai_edit_plan, all_shots_dict, audio_data, final_reel_file_output_path
     )
-    
-    if success_assembly and os.path.exists(actual_output_path_from_assembler): 
-        report_progress(98, "Reel assembled successfully.")
-    else: 
-        report_progress(98,"Reel assembly failed or output file not found."); success_assembly=False
-    
-    if PROFILE_STEPS:print(f"Step 4 duration: {time.time()-step_start_time:.2f}s")
-    print(f"\nTotal main_editor.py processing duration for Job {job_id}: {time.time()-overall_start_time:.2f}s")
-    
-    return success_assembly, final_reel_file_output_path_in_job_dir if success_assembly else None
+    if not success_assembly:
+        report_progress(98,"Reel assembly failed."); return False, None
+    report_progress(99, "Reel assembled successfully.")
+
+    return True, actual_output_path
 
 if __name__ == "__main__":
-    print("Running main_editor.py directly for testing purposes...")
-    
-    # Define base directories for input files relative to this script
-    current_script_dir = os.path.dirname(os.path.abspath(__file__))
-    TEST_INPUT_AUDIO_DIR = os.path.join(current_script_dir, "input_audio")
-    TEST_INPUT_VIDEOS_DIR = os.path.join(current_script_dir, "input_videos")
-    TEST_OUTPUT_JOB_ROOT = os.path.join(current_script_dir, "output") # Where job-specific folders will go
+    print(">>> Running main_editor.py in standalone test mode <<<")
+    TEST_AUDIO_PATH = "input_audio/test_audio.mp3" 
+    TEST_VIDEO_PATHS = ["input_videos/test_video.mp4"]
+    TEST_AUDIO_START = 15.0
+    TEST_AUDIO_END = 30.0
 
-    # Ensure directories exist for the test
-    for d_path in [TEST_INPUT_AUDIO_DIR, TEST_INPUT_VIDEOS_DIR, TEST_OUTPUT_JOB_ROOT]:
-        if not os.path.exists(d_path): os.makedirs(d_path, exist_ok=True)
-
-    # Example files (ensure these exist in your input_audio and input_videos folders for this test)
-    example_audio_filename = "myoudio.mp3" 
-    example_video_filenames = [ 
-        "video_20250603_121539_edit.mp4", 
-        "video_20250603_121911_edit.mp4",
-        "video_20250603_121829_edit.mp4" # Using 3 videos as per min constraint in UI
-    ]
-    
-    example_audio_fullpath = os.path.join(TEST_INPUT_AUDIO_DIR, example_audio_filename)
-    example_video_fullpaths = [os.path.join(TEST_INPUT_VIDEOS_DIR, fn) for fn in example_video_filenames]
-
-    def dummy_progress_callback_for_test(percent, message):
-        print(f"[MAIN_EDITOR_TEST_CALLBACK] Progress: {percent}% - Message: {message}")
-
-    all_test_files_exist = True
-    if not os.path.exists(example_audio_fullpath): 
-        print(f"ERROR for standalone test: Example audio file '{example_audio_fullpath}' not found."); all_test_files_exist = False
-    for vp in example_video_fullpaths:
-        if not os.path.exists(vp): 
-            print(f"ERROR for standalone test: Example video file '{vp}' not found."); all_test_files_exist = False
-    
-    if all_test_files_exist:
-        print("\n--- Standalone Test 1: AI Suggests Theme (user_theme_override=None) ---")
-        test1_job_id = "direct_main_suggest_theme_01"
-        test1_output_dir_specific = os.path.join(TEST_OUTPUT_JOB_ROOT, test1_job_id) # Job specific output dir
-        
-        success1, output1 = create_ai_edited_reel( 
-            user_theme_override=None, # Let AI suggest
-            user_min_duration=7, user_max_duration=15,
-            audio_file_full_path=example_audio_fullpath, 
-            video_file_full_paths_list=example_video_fullpaths,
-            output_base_dir_for_job=test1_output_dir_specific, 
-            job_id=test1_job_id, 
-            progress_update_callback=dummy_progress_callback_for_test 
+    if os.path.exists(TEST_AUDIO_PATH) and all(os.path.exists(p) for p in TEST_VIDEO_PATHS):
+        success, final_path = create_ai_edited_reel(
+            user_theme_override="AI will suggest a theme",
+            audio_file_full_path=TEST_AUDIO_PATH,
+            video_file_full_paths_list=TEST_VIDEO_PATHS,
+            output_base_dir_for_job="output/test_run",
+            audio_segment_start_sec=TEST_AUDIO_START,
+            audio_segment_end_sec=TEST_AUDIO_END,
+            job_id=f"test_{int(time.time())}"
         )
-        if success1: print(f"Standalone AI Theme Suggest Test SUCCESSFUL. Output: {output1}")
-        else: print("Standalone AI Theme Suggest Test FAILED.")
-
-        print("\n--- Standalone Test 2: User Provides Specific Theme ---")
-        user_defined_test_theme = "My Epic Test Reel Adventure"
-        test2_job_id = "direct_main_custom_theme_01"
-        test2_output_dir_specific = os.path.join(TEST_OUTPUT_JOB_ROOT, test2_job_id)
-
-        success2, output2 = create_ai_edited_reel( 
-            user_theme_override=user_defined_test_theme, 
-            user_min_duration=8,user_max_duration=16, # Slightly different params
-            audio_file_full_path=example_audio_fullpath, 
-            video_file_full_paths_list=example_video_fullpaths,
-            output_base_dir_for_job=test2_output_dir_specific, 
-            job_id=test2_job_id,
-            progress_update_callback=dummy_progress_callback_for_test
-        )
-        if success2: print(f"Standalone User Theme Test SUCCESSFUL. Output: {output2}")
-        else: print("Standalone User Theme Test FAILED.")
+        if success: print(f"✅ SUCCESS! Reel at: {final_path}")
+        else: print("❌ FAILED.")
     else:
-        print("Cannot run standalone main_editor.py test due to missing example audio/video files. "
-              f"Please ensure '{example_audio_filename}' is in '{TEST_INPUT_AUDIO_DIR}' and "
-              f"videos like '{example_video_filenames[0]}' are in '{TEST_INPUT_VIDEOS_DIR}'.")
+        print("❌ Test aborted. Please check that test files exist.")
